@@ -1,0 +1,13 @@
+.git
+.venv
+.pytest_cache
+.ruff_cache
+.aws-sam
+tmp
+tests
+reports
+*.pyc
+__pycache__
+.env
+web/node_modules
+web/.next

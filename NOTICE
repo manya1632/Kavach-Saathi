@@ -1,0 +1,12 @@
+This project includes a Python port of the DIGIPIN encoder/decoder reference logic.
+
+Copyright 2025-2026 Department of Posts, Government of India.
+Source: https://github.com/INDIAPOST-gov/digipin
+Licensed under the Apache License, Version 2.0.
+
+The storefront product flow was selected by the user with reference to:
+https://github.com/AshokPrjapati/Meesho-clone
+Reference commit: 4057ed337d0d7999d07f7e261b12887c9d904ddb
+Copyright 2023 Ashok Kumar. The reference repository contains no root license file;
+Kavach Saathi uses newly written source and synthetic local assets rather than copied
+source files or the reference project's retired remote backend.

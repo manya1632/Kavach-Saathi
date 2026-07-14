@@ -1,0 +1,602 @@
+[
+  {
+    "id": "A-001",
+    "buyer_id": "B-001",
+    "raw_address": "Hanuman Mandir ke peeche, gali no. 3",
+    "city": "Bilaspur",
+    "state": "Chhattisgarh",
+    "postal_pin": "110001",
+    "expected_postal_pin": "495001",
+    "coordinates": {
+      "latitude": 22.0797,
+      "longitude": 82.1409
+    },
+    "digipin": "2L3FPF799T",
+    "expected_valid": false
+  },
+  {
+    "id": "A-002",
+    "buyer_id": "B-002",
+    "raw_address": "Panchayat bhawan ke saamne",
+    "city": "Patna",
+    "state": "Bihar",
+    "postal_pin": "800001",
+    "expected_postal_pin": "800001",
+    "coordinates": {
+      "latitude": 25.5941,
+      "longitude": 85.1376
+    },
+    "digipin": "235MTC75JL",
+    "expected_valid": true
+  },
+  {
+    "id": "A-003",
+    "buyer_id": "B-003",
+    "raw_address": "Purani masjid wali gali",
+    "city": "Jaipur",
+    "state": "Rajasthan",
+    "postal_pin": "302001",
+    "expected_postal_pin": "302001",
+    "coordinates": {
+      "latitude": 26.9124,
+      "longitude": 75.7873
+    },
+    "digipin": "33C635JK43",
+    "expected_valid": true
+  },
+  {
+    "id": "A-004",
+    "buyer_id": "B-004",
+    "raw_address": "Water tank ke paas",
+    "city": "Lucknow",
+    "state": "Uttar Pradesh",
+    "postal_pin": "226001",
+    "expected_postal_pin": "226001",
+    "coordinates": {
+      "latitude": 26.8467,
+      "longitude": 80.9462
+    },
+    "digipin": "378KLJT684",
+    "expected_valid": true
+  },
+  {
+    "id": "A-005",
+    "buyer_id": "B-005",
+    "raw_address": "Hanuman Mandir ke peeche, gali no. 3",
+    "city": "Bilaspur",
+    "state": "Chhattisgarh",
+    "postal_pin": "495001",
+    "expected_postal_pin": "495001",
+    "coordinates": {
+      "latitude": 22.08,
+      "longitude": 82.1412
+    },
+    "digipin": "2L3FPF8T4L",
+    "expected_valid": true
+  },
+  {
+    "id": "A-006",
+    "buyer_id": "B-006",
+    "raw_address": "Panchayat bhawan ke saamne",
+    "city": "Patna",
+    "state": "Bihar",
+    "postal_pin": "110001",
+    "expected_postal_pin": "800001",
+    "coordinates": {
+      "latitude": 25.5944,
+      "longitude": 85.1379
+    },
+    "digipin": "235MTC72P4",
+    "expected_valid": false
+  },
+  {
+    "id": "A-007",
+    "buyer_id": "B-007",
+    "raw_address": "Purani masjid wali gali",
+    "city": "Jaipur",
+    "state": "Rajasthan",
+    "postal_pin": "302001",
+    "expected_postal_pin": "302001",
+    "coordinates": {
+      "latitude": 26.9127,
+      "longitude": 75.7876
+    },
+    "digipin": "33C635JK89",
+    "expected_valid": true
+  },
+  {
+    "id": "A-008",
+    "buyer_id": "B-008",
+    "raw_address": "Water tank ke paas",
+    "city": "Lucknow",
+    "state": "Uttar Pradesh",
+    "postal_pin": "226001",
+    "expected_postal_pin": "226001",
+    "coordinates": {
+      "latitude": 26.846999999999998,
+      "longitude": 80.9465
+    },
+    "digipin": "378KL3LJ45",
+    "expected_valid": true
+  },
+  {
+    "id": "A-009",
+    "buyer_id": "B-009",
+    "raw_address": "Hanuman Mandir ke peeche, gali no. 3",
+    "city": "Bilaspur",
+    "state": "Chhattisgarh",
+    "postal_pin": "495001",
+    "expected_postal_pin": "495001",
+    "coordinates": {
+      "latitude": 22.080299999999998,
+      "longitude": 82.14150000000001
+    },
+    "digipin": "2L3FPF8T84",
+    "expected_valid": true
+  },
+  {
+    "id": "A-010",
+    "buyer_id": "B-010",
+    "raw_address": "Panchayat bhawan ke saamne",
+    "city": "Patna",
+    "state": "Bihar",
+    "postal_pin": "800001",
+    "expected_postal_pin": "800001",
+    "coordinates": {
+      "latitude": 25.5947,
+      "longitude": 85.13820000000001
+    },
+    "digipin": "235MTC77J5",
+    "expected_valid": true
+  },
+  {
+    "id": "A-011",
+    "buyer_id": "B-001",
+    "raw_address": "Purani masjid wali gali",
+    "city": "Jaipur",
+    "state": "Rajasthan",
+    "postal_pin": "110001",
+    "expected_postal_pin": "302001",
+    "coordinates": {
+      "latitude": 26.913,
+      "longitude": 75.78790000000001
+    },
+    "digipin": "33C635J33T",
+    "expected_valid": false
+  },
+  {
+    "id": "A-012",
+    "buyer_id": "B-002",
+    "raw_address": "Water tank ke paas",
+    "city": "Lucknow",
+    "state": "Uttar Pradesh",
+    "postal_pin": "226001",
+    "expected_postal_pin": "226001",
+    "coordinates": {
+      "latitude": 26.847299999999997,
+      "longitude": 80.94680000000001
+    },
+    "digipin": "378KL3LJ82",
+    "expected_valid": true
+  },
+  {
+    "id": "A-013",
+    "buyer_id": "B-003",
+    "raw_address": "Hanuman Mandir ke peeche, gali no. 3",
+    "city": "Bilaspur",
+    "state": "Chhattisgarh",
+    "postal_pin": "495001",
+    "expected_postal_pin": "495001",
+    "coordinates": {
+      "latitude": 22.0806,
+      "longitude": 82.1418
+    },
+    "digipin": "2L3FPCFK43",
+    "expected_valid": true
+  },
+  {
+    "id": "A-014",
+    "buyer_id": "B-004",
+    "raw_address": "Panchayat bhawan ke saamne",
+    "city": "Patna",
+    "state": "Bihar",
+    "postal_pin": "800001",
+    "expected_postal_pin": "800001",
+    "coordinates": {
+      "latitude": 25.595000000000002,
+      "longitude": 85.13850000000001
+    },
+    "digipin": "235MTC78P2",
+    "expected_valid": true
+  },
+  {
+    "id": "A-015",
+    "buyer_id": "B-005",
+    "raw_address": "Purani masjid wali gali",
+    "city": "Jaipur",
+    "state": "Rajasthan",
+    "postal_pin": "302001",
+    "expected_postal_pin": "302001",
+    "coordinates": {
+      "latitude": 26.913300000000003,
+      "longitude": 75.7882
+    },
+    "digipin": "33C635JCTT",
+    "expected_valid": true
+  },
+  {
+    "id": "A-016",
+    "buyer_id": "B-006",
+    "raw_address": "Water tank ke paas",
+    "city": "Lucknow",
+    "state": "Uttar Pradesh",
+    "postal_pin": "110001",
+    "expected_postal_pin": "226001",
+    "coordinates": {
+      "latitude": 26.8476,
+      "longitude": 80.9471
+    },
+    "digipin": "378KL3LC48",
+    "expected_valid": false
+  },
+  {
+    "id": "A-017",
+    "buyer_id": "B-007",
+    "raw_address": "Hanuman Mandir ke peeche, gali no. 3",
+    "city": "Bilaspur",
+    "state": "Chhattisgarh",
+    "postal_pin": "495001",
+    "expected_postal_pin": "495001",
+    "coordinates": {
+      "latitude": 22.0809,
+      "longitude": 82.1421
+    },
+    "digipin": "2L3FPCFK89",
+    "expected_valid": true
+  },
+  {
+    "id": "A-018",
+    "buyer_id": "B-008",
+    "raw_address": "Panchayat bhawan ke saamne",
+    "city": "Patna",
+    "state": "Bihar",
+    "postal_pin": "800001",
+    "expected_postal_pin": "800001",
+    "coordinates": {
+      "latitude": 25.5953,
+      "longitude": 85.1388
+    },
+    "digipin": "235MT9JFJ8",
+    "expected_valid": true
+  },
+  {
+    "id": "A-019",
+    "buyer_id": "B-009",
+    "raw_address": "Purani masjid wali gali",
+    "city": "Jaipur",
+    "state": "Rajasthan",
+    "postal_pin": "302001",
+    "expected_postal_pin": "302001",
+    "coordinates": {
+      "latitude": 26.913600000000002,
+      "longitude": 75.7885
+    },
+    "digipin": "33C635J92K",
+    "expected_valid": true
+  },
+  {
+    "id": "A-020",
+    "buyer_id": "B-010",
+    "raw_address": "Water tank ke paas",
+    "city": "Lucknow",
+    "state": "Uttar Pradesh",
+    "postal_pin": "226001",
+    "expected_postal_pin": "226001",
+    "coordinates": {
+      "latitude": 26.8479,
+      "longitude": 80.9474
+    },
+    "digipin": "378KL3L9FF",
+    "expected_valid": true
+  },
+  {
+    "id": "A-021",
+    "buyer_id": "B-001",
+    "raw_address": "Hanuman Mandir ke peeche, gali no. 3",
+    "city": "Bilaspur",
+    "state": "Chhattisgarh",
+    "postal_pin": "110001",
+    "expected_postal_pin": "495001",
+    "coordinates": {
+      "latitude": 22.0812,
+      "longitude": 82.1424
+    },
+    "digipin": "2L3FPCF348",
+    "expected_valid": false
+  },
+  {
+    "id": "A-022",
+    "buyer_id": "B-002",
+    "raw_address": "Panchayat bhawan ke saamne",
+    "city": "Patna",
+    "state": "Bihar",
+    "postal_pin": "800001",
+    "expected_postal_pin": "800001",
+    "coordinates": {
+      "latitude": 25.5956,
+      "longitude": 85.1391
+    },
+    "digipin": "235MT9FL6L",
+    "expected_valid": true
+  },
+  {
+    "id": "A-023",
+    "buyer_id": "B-003",
+    "raw_address": "Purani masjid wali gali",
+    "city": "Jaipur",
+    "state": "Rajasthan",
+    "postal_pin": "302001",
+    "expected_postal_pin": "302001",
+    "coordinates": {
+      "latitude": 26.9139,
+      "longitude": 75.7888
+    },
+    "digipin": "33C635FTL3",
+    "expected_valid": true
+  },
+  {
+    "id": "A-024",
+    "buyer_id": "B-004",
+    "raw_address": "Water tank ke paas",
+    "city": "Lucknow",
+    "state": "Uttar Pradesh",
+    "postal_pin": "226001",
+    "expected_postal_pin": "226001",
+    "coordinates": {
+      "latitude": 26.8482,
+      "longitude": 80.9477
+    },
+    "digipin": "378KL3KP2M",
+    "expected_valid": true
+  },
+  {
+    "id": "A-025",
+    "buyer_id": "B-005",
+    "raw_address": "Hanuman Mandir ke peeche, gali no. 3",
+    "city": "Bilaspur",
+    "state": "Chhattisgarh",
+    "postal_pin": "495001",
+    "expected_postal_pin": "495001",
+    "coordinates": {
+      "latitude": 22.0815,
+      "longitude": 82.1427
+    },
+    "digipin": "2L3FPCFCTT",
+    "expected_valid": true
+  },
+  {
+    "id": "A-026",
+    "buyer_id": "B-006",
+    "raw_address": "Panchayat bhawan ke saamne",
+    "city": "Patna",
+    "state": "Bihar",
+    "postal_pin": "110001",
+    "expected_postal_pin": "800001",
+    "coordinates": {
+      "latitude": 25.5959,
+      "longitude": 85.13940000000001
+    },
+    "digipin": "235MT9FMCM",
+    "expected_valid": false
+  },
+  {
+    "id": "A-027",
+    "buyer_id": "B-007",
+    "raw_address": "Purani masjid wali gali",
+    "city": "Jaipur",
+    "state": "Rajasthan",
+    "postal_pin": "302001",
+    "expected_postal_pin": "302001",
+    "coordinates": {
+      "latitude": 26.9142,
+      "longitude": 75.7891
+    },
+    "digipin": "33C635FT2C",
+    "expected_valid": true
+  },
+  {
+    "id": "A-028",
+    "buyer_id": "B-008",
+    "raw_address": "Water tank ke paas",
+    "city": "Lucknow",
+    "state": "Uttar Pradesh",
+    "postal_pin": "226001",
+    "expected_postal_pin": "226001",
+    "coordinates": {
+      "latitude": 26.848499999999998,
+      "longitude": 80.94800000000001
+    },
+    "digipin": "378KL3K6L4",
+    "expected_valid": true
+  },
+  {
+    "id": "A-029",
+    "buyer_id": "B-009",
+    "raw_address": "Hanuman Mandir ke peeche, gali no. 3",
+    "city": "Bilaspur",
+    "state": "Chhattisgarh",
+    "postal_pin": "495001",
+    "expected_postal_pin": "495001",
+    "coordinates": {
+      "latitude": 22.081799999999998,
+      "longitude": 82.143
+    },
+    "digipin": "2L3FPCF92K",
+    "expected_valid": true
+  },
+  {
+    "id": "A-030",
+    "buyer_id": "B-010",
+    "raw_address": "Panchayat bhawan ke saamne",
+    "city": "Patna",
+    "state": "Bihar",
+    "postal_pin": "800001",
+    "expected_postal_pin": "800001",
+    "coordinates": {
+      "latitude": 25.5962,
+      "longitude": 85.1397
+    },
+    "digipin": "235MT9F464",
+    "expected_valid": true
+  },
+  {
+    "id": "A-031",
+    "buyer_id": "B-001",
+    "raw_address": "Purani masjid wali gali",
+    "city": "Jaipur",
+    "state": "Rajasthan",
+    "postal_pin": "110001",
+    "expected_postal_pin": "302001",
+    "coordinates": {
+      "latitude": 26.9145,
+      "longitude": 75.7894
+    },
+    "digipin": "33C635CKL9",
+    "expected_valid": false
+  },
+  {
+    "id": "A-032",
+    "buyer_id": "B-002",
+    "raw_address": "Water tank ke paas",
+    "city": "Lucknow",
+    "state": "Uttar Pradesh",
+    "postal_pin": "226001",
+    "expected_postal_pin": "226001",
+    "coordinates": {
+      "latitude": 26.848799999999997,
+      "longitude": 80.9483
+    },
+    "digipin": "378KL3K622",
+    "expected_valid": true
+  },
+  {
+    "id": "A-033",
+    "buyer_id": "B-003",
+    "raw_address": "Hanuman Mandir ke peeche, gali no. 3",
+    "city": "Bilaspur",
+    "state": "Chhattisgarh",
+    "postal_pin": "495001",
+    "expected_postal_pin": "495001",
+    "coordinates": {
+      "latitude": 22.0821,
+      "longitude": 82.1433
+    },
+    "digipin": "2L3F5MLTL3",
+    "expected_valid": true
+  },
+  {
+    "id": "A-034",
+    "buyer_id": "B-004",
+    "raw_address": "Panchayat bhawan ke saamne",
+    "city": "Patna",
+    "state": "Bihar",
+    "postal_pin": "800001",
+    "expected_postal_pin": "800001",
+    "coordinates": {
+      "latitude": 25.596500000000002,
+      "longitude": 85.14
+    },
+    "digipin": "235MT9F5C2",
+    "expected_valid": true
+  },
+  {
+    "id": "A-035",
+    "buyer_id": "B-005",
+    "raw_address": "Purani masjid wali gali",
+    "city": "Jaipur",
+    "state": "Rajasthan",
+    "postal_pin": "302001",
+    "expected_postal_pin": "302001",
+    "coordinates": {
+      "latitude": 26.914800000000003,
+      "longitude": 75.7897
+    },
+    "digipin": "33C635CK9T",
+    "expected_valid": true
+  },
+  {
+    "id": "A-036",
+    "buyer_id": "B-006",
+    "raw_address": "Water tank ke paas",
+    "city": "Lucknow",
+    "state": "Uttar Pradesh",
+    "postal_pin": "110001",
+    "expected_postal_pin": "226001",
+    "coordinates": {
+      "latitude": 26.8491,
+      "longitude": 80.9486
+    },
+    "digipin": "378KL34JL7",
+    "expected_valid": false
+  },
+  {
+    "id": "A-037",
+    "buyer_id": "B-007",
+    "raw_address": "Hanuman Mandir ke peeche, gali no. 3",
+    "city": "Bilaspur",
+    "state": "Chhattisgarh",
+    "postal_pin": "495001",
+    "expected_postal_pin": "495001",
+    "coordinates": {
+      "latitude": 22.0824,
+      "longitude": 82.1436
+    },
+    "digipin": "2L3F5MLT22",
+    "expected_valid": true
+  },
+  {
+    "id": "A-038",
+    "buyer_id": "B-008",
+    "raw_address": "Panchayat bhawan ke saamne",
+    "city": "Patna",
+    "state": "Bihar",
+    "postal_pin": "800001",
+    "expected_postal_pin": "800001",
+    "coordinates": {
+      "latitude": 25.5968,
+      "longitude": 85.14030000000001
+    },
+    "digipin": "235MT9F268",
+    "expected_valid": true
+  },
+  {
+    "id": "A-039",
+    "buyer_id": "B-009",
+    "raw_address": "Purani masjid wali gali",
+    "city": "Jaipur",
+    "state": "Rajasthan",
+    "postal_pin": "302001",
+    "expected_postal_pin": "302001",
+    "coordinates": {
+      "latitude": 26.915100000000002,
+      "longitude": 75.79
+    },
+    "digipin": "33C635C34K",
+    "expected_valid": true
+  },
+  {
+    "id": "A-040",
+    "buyer_id": "B-010",
+    "raw_address": "Water tank ke paas",
+    "city": "Lucknow",
+    "state": "Uttar Pradesh",
+    "postal_pin": "226001",
+    "expected_postal_pin": "226001",
+    "coordinates": {
+      "latitude": 26.8494,
+      "longitude": 80.94890000000001
+    },
+    "digipin": "378KL34J7F",
+    "expected_valid": true
+  }
+]

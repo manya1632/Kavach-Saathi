@@ -1,0 +1,110 @@
+[
+  {
+    "id": "S-001",
+    "name": "Surat Saheli Studio",
+    "city": "Surat",
+    "rating": 3.98,
+    "on_time_rate": 87,
+    "return_rate": 9,
+    "verified": true
+  },
+  {
+    "id": "S-002",
+    "name": "Jaipur Rangrez",
+    "city": "Jaipur",
+    "rating": 4.16,
+    "on_time_rate": 88,
+    "return_rate": 10,
+    "verified": true
+  },
+  {
+    "id": "S-003",
+    "name": "Lucknow Chikan Works",
+    "city": "Lucknow",
+    "rating": 4.34,
+    "on_time_rate": 89,
+    "return_rate": 11,
+    "verified": true
+  },
+  {
+    "id": "S-004",
+    "name": "Narmada Ethnic",
+    "city": "Delhi",
+    "rating": 4.52,
+    "on_time_rate": 90,
+    "return_rate": 12,
+    "verified": true
+  },
+  {
+    "id": "S-005",
+    "name": "Gulabi Looms",
+    "city": "Ahmedabad",
+    "rating": 4.7,
+    "on_time_rate": 91,
+    "return_rate": 13,
+    "verified": true
+  },
+  {
+    "id": "S-006",
+    "name": "Saanjh Apparel",
+    "city": "Kolkata",
+    "rating": 3.8,
+    "on_time_rate": 92,
+    "return_rate": 14,
+    "verified": true
+  },
+  {
+    "id": "S-007",
+    "name": "Udaan Fashion House",
+    "city": "Surat",
+    "rating": 3.98,
+    "on_time_rate": 93,
+    "return_rate": 15,
+    "verified": true
+  },
+  {
+    "id": "S-008",
+    "name": "Noor Textiles",
+    "city": "Jaipur",
+    "rating": 4.16,
+    "on_time_rate": 94,
+    "return_rate": 16,
+    "verified": false
+  },
+  {
+    "id": "S-009",
+    "name": "Pragati Collections",
+    "city": "Lucknow",
+    "rating": 4.34,
+    "on_time_rate": 95,
+    "return_rate": 8,
+    "verified": true
+  },
+  {
+    "id": "S-010",
+    "name": "Aarohi Trends",
+    "city": "Delhi",
+    "rating": 4.52,
+    "on_time_rate": 96,
+    "return_rate": 9,
+    "verified": true
+  },
+  {
+    "id": "S-011",
+    "name": "Satrangi Bazaar",
+    "city": "Ahmedabad",
+    "rating": 4.7,
+    "on_time_rate": 97,
+    "return_rate": 10,
+    "verified": false
+  },
+  {
+    "id": "S-012",
+    "name": "Nayi Disha Living",
+    "city": "Kolkata",
+    "rating": 3.8,
+    "on_time_rate": 86,
+    "return_rate": 11,
+    "verified": true
+  }
+]

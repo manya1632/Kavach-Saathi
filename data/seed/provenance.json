@@ -1,0 +1,23 @@
+[
+  {
+    "id": "dataset-v2",
+    "seed": 20260713,
+    "strategy": "synthetic category-balanced marketplace fixtures informed by public catalogue patterns",
+    "contains_real_customer_data": false,
+    "contains_copied_reviews": false,
+    "category_order": [
+      "Popular",
+      "Kurti, Saree & Lehenga",
+      "Women Western",
+      "Lingerie",
+      "Men",
+      "Kids & Toys",
+      "Home & Kitchen",
+      "Beauty & Health",
+      "Jewellery & Accessories",
+      "Bags & Footwear"
+    ],
+    "products_per_category": 50,
+    "digipin_reference": "https://github.com/INDIAPOST-gov/digipin"
+  }
+]

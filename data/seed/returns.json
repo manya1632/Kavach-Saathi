@@ -1,0 +1,782 @@
+[
+  {
+    "id": "RT-GOLDEN",
+    "order_id": "O-GOLDEN",
+    "video": "assets/mock/returns/return-approve.mp4",
+    "evidence": {
+      "tag_visible": true,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 96,
+    "expected_decision": "approve"
+  },
+  {
+    "id": "RT-002",
+    "order_id": "O-002",
+    "video": "assets/mock/returns/return-request_more_evidence.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 68,
+    "expected_decision": "request_more_evidence"
+  },
+  {
+    "id": "RT-003",
+    "order_id": "O-003",
+    "video": "assets/mock/returns/return-manual_inspection.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": false,
+      "product_matches": false,
+      "packaging_matches": true
+    },
+    "expected_confidence": 24,
+    "expected_decision": "manual_inspection"
+  },
+  {
+    "id": "RT-004",
+    "order_id": "O-004",
+    "video": "assets/mock/returns/return-approve.mp4",
+    "evidence": {
+      "tag_visible": true,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 96,
+    "expected_decision": "approve"
+  },
+  {
+    "id": "RT-005",
+    "order_id": "O-005",
+    "video": "assets/mock/returns/return-request_more_evidence.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 68,
+    "expected_decision": "request_more_evidence"
+  },
+  {
+    "id": "RT-006",
+    "order_id": "O-006",
+    "video": "assets/mock/returns/return-manual_inspection.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": false,
+      "product_matches": false,
+      "packaging_matches": true
+    },
+    "expected_confidence": 24,
+    "expected_decision": "manual_inspection"
+  },
+  {
+    "id": "RT-007",
+    "order_id": "O-007",
+    "video": "assets/mock/returns/return-approve.mp4",
+    "evidence": {
+      "tag_visible": true,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 96,
+    "expected_decision": "approve"
+  },
+  {
+    "id": "RT-008",
+    "order_id": "O-008",
+    "video": "assets/mock/returns/return-request_more_evidence.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 68,
+    "expected_decision": "request_more_evidence"
+  },
+  {
+    "id": "RT-009",
+    "order_id": "O-009",
+    "video": "assets/mock/returns/return-manual_inspection.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": false,
+      "product_matches": false,
+      "packaging_matches": true
+    },
+    "expected_confidence": 24,
+    "expected_decision": "manual_inspection"
+  },
+  {
+    "id": "RT-010",
+    "order_id": "O-010",
+    "video": "assets/mock/returns/return-approve.mp4",
+    "evidence": {
+      "tag_visible": true,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 96,
+    "expected_decision": "approve"
+  },
+  {
+    "id": "RT-011",
+    "order_id": "O-011",
+    "video": "assets/mock/returns/return-request_more_evidence.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 68,
+    "expected_decision": "request_more_evidence"
+  },
+  {
+    "id": "RT-012",
+    "order_id": "O-012",
+    "video": "assets/mock/returns/return-manual_inspection.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": false,
+      "product_matches": false,
+      "packaging_matches": true
+    },
+    "expected_confidence": 24,
+    "expected_decision": "manual_inspection"
+  },
+  {
+    "id": "RT-013",
+    "order_id": "O-013",
+    "video": "assets/mock/returns/return-approve.mp4",
+    "evidence": {
+      "tag_visible": true,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 96,
+    "expected_decision": "approve"
+  },
+  {
+    "id": "RT-014",
+    "order_id": "O-014",
+    "video": "assets/mock/returns/return-request_more_evidence.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 68,
+    "expected_decision": "request_more_evidence"
+  },
+  {
+    "id": "RT-015",
+    "order_id": "O-015",
+    "video": "assets/mock/returns/return-manual_inspection.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": false,
+      "product_matches": false,
+      "packaging_matches": true
+    },
+    "expected_confidence": 24,
+    "expected_decision": "manual_inspection"
+  },
+  {
+    "id": "RT-016",
+    "order_id": "O-016",
+    "video": "assets/mock/returns/return-approve.mp4",
+    "evidence": {
+      "tag_visible": true,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 96,
+    "expected_decision": "approve"
+  },
+  {
+    "id": "RT-017",
+    "order_id": "O-017",
+    "video": "assets/mock/returns/return-request_more_evidence.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 68,
+    "expected_decision": "request_more_evidence"
+  },
+  {
+    "id": "RT-018",
+    "order_id": "O-018",
+    "video": "assets/mock/returns/return-manual_inspection.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": false,
+      "product_matches": false,
+      "packaging_matches": true
+    },
+    "expected_confidence": 24,
+    "expected_decision": "manual_inspection"
+  },
+  {
+    "id": "RT-019",
+    "order_id": "O-019",
+    "video": "assets/mock/returns/return-approve.mp4",
+    "evidence": {
+      "tag_visible": true,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 96,
+    "expected_decision": "approve"
+  },
+  {
+    "id": "RT-020",
+    "order_id": "O-020",
+    "video": "assets/mock/returns/return-request_more_evidence.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 68,
+    "expected_decision": "request_more_evidence"
+  },
+  {
+    "id": "RT-021",
+    "order_id": "O-021",
+    "video": "assets/mock/returns/return-manual_inspection.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": false,
+      "product_matches": false,
+      "packaging_matches": true
+    },
+    "expected_confidence": 24,
+    "expected_decision": "manual_inspection"
+  },
+  {
+    "id": "RT-022",
+    "order_id": "O-022",
+    "video": "assets/mock/returns/return-approve.mp4",
+    "evidence": {
+      "tag_visible": true,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 96,
+    "expected_decision": "approve"
+  },
+  {
+    "id": "RT-023",
+    "order_id": "O-023",
+    "video": "assets/mock/returns/return-request_more_evidence.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 68,
+    "expected_decision": "request_more_evidence"
+  },
+  {
+    "id": "RT-024",
+    "order_id": "O-024",
+    "video": "assets/mock/returns/return-manual_inspection.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": false,
+      "product_matches": false,
+      "packaging_matches": true
+    },
+    "expected_confidence": 24,
+    "expected_decision": "manual_inspection"
+  },
+  {
+    "id": "RT-025",
+    "order_id": "O-025",
+    "video": "assets/mock/returns/return-approve.mp4",
+    "evidence": {
+      "tag_visible": true,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 96,
+    "expected_decision": "approve"
+  },
+  {
+    "id": "RT-026",
+    "order_id": "O-026",
+    "video": "assets/mock/returns/return-request_more_evidence.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 68,
+    "expected_decision": "request_more_evidence"
+  },
+  {
+    "id": "RT-027",
+    "order_id": "O-027",
+    "video": "assets/mock/returns/return-manual_inspection.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": false,
+      "product_matches": false,
+      "packaging_matches": true
+    },
+    "expected_confidence": 24,
+    "expected_decision": "manual_inspection"
+  },
+  {
+    "id": "RT-028",
+    "order_id": "O-028",
+    "video": "assets/mock/returns/return-approve.mp4",
+    "evidence": {
+      "tag_visible": true,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 96,
+    "expected_decision": "approve"
+  },
+  {
+    "id": "RT-029",
+    "order_id": "O-029",
+    "video": "assets/mock/returns/return-request_more_evidence.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 68,
+    "expected_decision": "request_more_evidence"
+  },
+  {
+    "id": "RT-030",
+    "order_id": "O-030",
+    "video": "assets/mock/returns/return-manual_inspection.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": false,
+      "product_matches": false,
+      "packaging_matches": true
+    },
+    "expected_confidence": 24,
+    "expected_decision": "manual_inspection"
+  },
+  {
+    "id": "RT-031",
+    "order_id": "O-031",
+    "video": "assets/mock/returns/return-approve.mp4",
+    "evidence": {
+      "tag_visible": true,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 96,
+    "expected_decision": "approve"
+  },
+  {
+    "id": "RT-032",
+    "order_id": "O-032",
+    "video": "assets/mock/returns/return-request_more_evidence.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 68,
+    "expected_decision": "request_more_evidence"
+  },
+  {
+    "id": "RT-033",
+    "order_id": "O-033",
+    "video": "assets/mock/returns/return-manual_inspection.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": false,
+      "product_matches": false,
+      "packaging_matches": true
+    },
+    "expected_confidence": 24,
+    "expected_decision": "manual_inspection"
+  },
+  {
+    "id": "RT-034",
+    "order_id": "O-034",
+    "video": "assets/mock/returns/return-approve.mp4",
+    "evidence": {
+      "tag_visible": true,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 96,
+    "expected_decision": "approve"
+  },
+  {
+    "id": "RT-035",
+    "order_id": "O-035",
+    "video": "assets/mock/returns/return-request_more_evidence.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 68,
+    "expected_decision": "request_more_evidence"
+  },
+  {
+    "id": "RT-036",
+    "order_id": "O-036",
+    "video": "assets/mock/returns/return-manual_inspection.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": false,
+      "product_matches": false,
+      "packaging_matches": true
+    },
+    "expected_confidence": 24,
+    "expected_decision": "manual_inspection"
+  },
+  {
+    "id": "RT-037",
+    "order_id": "O-037",
+    "video": "assets/mock/returns/return-approve.mp4",
+    "evidence": {
+      "tag_visible": true,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 96,
+    "expected_decision": "approve"
+  },
+  {
+    "id": "RT-038",
+    "order_id": "O-038",
+    "video": "assets/mock/returns/return-request_more_evidence.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 68,
+    "expected_decision": "request_more_evidence"
+  },
+  {
+    "id": "RT-039",
+    "order_id": "O-039",
+    "video": "assets/mock/returns/return-manual_inspection.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": false,
+      "product_matches": false,
+      "packaging_matches": true
+    },
+    "expected_confidence": 24,
+    "expected_decision": "manual_inspection"
+  },
+  {
+    "id": "RT-040",
+    "order_id": "O-040",
+    "video": "assets/mock/returns/return-approve.mp4",
+    "evidence": {
+      "tag_visible": true,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 96,
+    "expected_decision": "approve"
+  },
+  {
+    "id": "RT-041",
+    "order_id": "O-041",
+    "video": "assets/mock/returns/return-request_more_evidence.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 68,
+    "expected_decision": "request_more_evidence"
+  },
+  {
+    "id": "RT-042",
+    "order_id": "O-042",
+    "video": "assets/mock/returns/return-manual_inspection.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": false,
+      "product_matches": false,
+      "packaging_matches": true
+    },
+    "expected_confidence": 24,
+    "expected_decision": "manual_inspection"
+  },
+  {
+    "id": "RT-043",
+    "order_id": "O-043",
+    "video": "assets/mock/returns/return-approve.mp4",
+    "evidence": {
+      "tag_visible": true,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 96,
+    "expected_decision": "approve"
+  },
+  {
+    "id": "RT-044",
+    "order_id": "O-044",
+    "video": "assets/mock/returns/return-request_more_evidence.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 68,
+    "expected_decision": "request_more_evidence"
+  },
+  {
+    "id": "RT-045",
+    "order_id": "O-045",
+    "video": "assets/mock/returns/return-manual_inspection.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": false,
+      "product_matches": false,
+      "packaging_matches": true
+    },
+    "expected_confidence": 24,
+    "expected_decision": "manual_inspection"
+  },
+  {
+    "id": "RT-046",
+    "order_id": "O-046",
+    "video": "assets/mock/returns/return-approve.mp4",
+    "evidence": {
+      "tag_visible": true,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 96,
+    "expected_decision": "approve"
+  },
+  {
+    "id": "RT-047",
+    "order_id": "O-047",
+    "video": "assets/mock/returns/return-request_more_evidence.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 68,
+    "expected_decision": "request_more_evidence"
+  },
+  {
+    "id": "RT-048",
+    "order_id": "O-048",
+    "video": "assets/mock/returns/return-manual_inspection.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": false,
+      "product_matches": false,
+      "packaging_matches": true
+    },
+    "expected_confidence": 24,
+    "expected_decision": "manual_inspection"
+  },
+  {
+    "id": "RT-049",
+    "order_id": "O-049",
+    "video": "assets/mock/returns/return-approve.mp4",
+    "evidence": {
+      "tag_visible": true,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 96,
+    "expected_decision": "approve"
+  },
+  {
+    "id": "RT-050",
+    "order_id": "O-050",
+    "video": "assets/mock/returns/return-request_more_evidence.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 68,
+    "expected_decision": "request_more_evidence"
+  },
+  {
+    "id": "RT-051",
+    "order_id": "O-051",
+    "video": "assets/mock/returns/return-manual_inspection.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": false,
+      "product_matches": false,
+      "packaging_matches": true
+    },
+    "expected_confidence": 24,
+    "expected_decision": "manual_inspection"
+  },
+  {
+    "id": "RT-052",
+    "order_id": "O-052",
+    "video": "assets/mock/returns/return-approve.mp4",
+    "evidence": {
+      "tag_visible": true,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 96,
+    "expected_decision": "approve"
+  },
+  {
+    "id": "RT-053",
+    "order_id": "O-053",
+    "video": "assets/mock/returns/return-request_more_evidence.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 68,
+    "expected_decision": "request_more_evidence"
+  },
+  {
+    "id": "RT-054",
+    "order_id": "O-054",
+    "video": "assets/mock/returns/return-manual_inspection.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": false,
+      "product_matches": false,
+      "packaging_matches": true
+    },
+    "expected_confidence": 24,
+    "expected_decision": "manual_inspection"
+  },
+  {
+    "id": "RT-055",
+    "order_id": "O-055",
+    "video": "assets/mock/returns/return-approve.mp4",
+    "evidence": {
+      "tag_visible": true,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 96,
+    "expected_decision": "approve"
+  },
+  {
+    "id": "RT-056",
+    "order_id": "O-056",
+    "video": "assets/mock/returns/return-request_more_evidence.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 68,
+    "expected_decision": "request_more_evidence"
+  },
+  {
+    "id": "RT-057",
+    "order_id": "O-057",
+    "video": "assets/mock/returns/return-manual_inspection.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": false,
+      "product_matches": false,
+      "packaging_matches": true
+    },
+    "expected_confidence": 24,
+    "expected_decision": "manual_inspection"
+  },
+  {
+    "id": "RT-058",
+    "order_id": "O-058",
+    "video": "assets/mock/returns/return-approve.mp4",
+    "evidence": {
+      "tag_visible": true,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 96,
+    "expected_decision": "approve"
+  },
+  {
+    "id": "RT-059",
+    "order_id": "O-059",
+    "video": "assets/mock/returns/return-request_more_evidence.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": true,
+      "product_matches": true,
+      "packaging_matches": true
+    },
+    "expected_confidence": 68,
+    "expected_decision": "request_more_evidence"
+  },
+  {
+    "id": "RT-060",
+    "order_id": "O-060",
+    "video": "assets/mock/returns/return-manual_inspection.mp4",
+    "evidence": {
+      "tag_visible": false,
+      "label_matches": false,
+      "product_matches": false,
+      "packaging_matches": true
+    },
+    "expected_confidence": 24,
+    "expected_decision": "manual_inspection"
+  }
+]

@@ -1,0 +1,122 @@
+[
+  {
+    "id": "B-001",
+    "name": "Sunita",
+    "city": "Bilaspur",
+    "language": "hi",
+    "measurements_cm": {
+      "chest": 92,
+      "waist": 84,
+      "height": 156
+    },
+    "trusted_returner": true
+  },
+  {
+    "id": "B-002",
+    "name": "Asha",
+    "city": "Patna",
+    "language": "hi",
+    "measurements_cm": {
+      "chest": 96,
+      "waist": 88,
+      "height": 158
+    },
+    "trusted_returner": true
+  },
+  {
+    "id": "B-003",
+    "name": "Rekha",
+    "city": "Jaipur",
+    "language": "hi",
+    "measurements_cm": {
+      "chest": 100,
+      "waist": 92,
+      "height": 160
+    },
+    "trusted_returner": false
+  },
+  {
+    "id": "B-004",
+    "name": "Pooja",
+    "city": "Lucknow",
+    "language": "en",
+    "measurements_cm": {
+      "chest": 104,
+      "waist": 96,
+      "height": 162
+    },
+    "trusted_returner": true
+  },
+  {
+    "id": "B-005",
+    "name": "Farida",
+    "city": "Indore",
+    "language": "hi",
+    "measurements_cm": {
+      "chest": 92,
+      "waist": 84,
+      "height": 164
+    },
+    "trusted_returner": false
+  },
+  {
+    "id": "B-006",
+    "name": "Meena",
+    "city": "Bilaspur",
+    "language": "bn",
+    "measurements_cm": {
+      "chest": 96,
+      "waist": 88,
+      "height": 166
+    },
+    "trusted_returner": false
+  },
+  {
+    "id": "B-007",
+    "name": "Kavita",
+    "city": "Patna",
+    "language": "mr",
+    "measurements_cm": {
+      "chest": 100,
+      "waist": 92,
+      "height": 168
+    },
+    "trusted_returner": true
+  },
+  {
+    "id": "B-008",
+    "name": "Lata",
+    "city": "Jaipur",
+    "language": "hi",
+    "measurements_cm": {
+      "chest": 104,
+      "waist": 96,
+      "height": 170
+    },
+    "trusted_returner": false
+  },
+  {
+    "id": "B-009",
+    "name": "Rani",
+    "city": "Lucknow",
+    "language": "gu",
+    "measurements_cm": {
+      "chest": 92,
+      "waist": 84,
+      "height": 172
+    },
+    "trusted_returner": false
+  },
+  {
+    "id": "B-010",
+    "name": "Neha",
+    "city": "Indore",
+    "language": "en",
+    "measurements_cm": {
+      "chest": 96,
+      "waist": 88,
+      "height": 174
+    },
+    "trusted_returner": false
+  }
+]

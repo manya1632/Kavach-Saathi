@@ -19,11 +19,13 @@ test("buyer can sign up, browse, add to cart, verify address, and place a real o
   // Real bcrypt hashing + a real DB round trip -- slower than Playwright's 5s default.
   await expect(page.getByRole("button", { name: "Login" })).not.toBeVisible({ timeout: 40_000 });
 
-  // Find the golden demo product and open its detail drawer.
+  // Find the golden demo product and open its real, deep-linkable product page.
   await page.getByPlaceholder("Try Saree, Kurti or Search by Product Code").fill("Maroon");
   const productCard = page.getByRole("button", { name: /^Open .*Maroon.*Kurta/i }).first();
   await expect(productCard).toBeVisible();
   await productCard.click();
+  await expect(page).toHaveURL(/\/products\/P-001$/);
+  await expect(page.getByRole("main", { name: "Maroon Floral Cotton Kurta" })).toBeVisible();
 
   // Select a size (the product has a real size chart) and add to a real cart_items row.
   const sizeButtons = page.locator(".size-row button");
@@ -31,25 +33,18 @@ test("buyer can sign up, browse, add to cart, verify address, and place a real o
   await sizeButtons.first().click();
   await page.getByRole("button", { name: "Add to cart" }).click();
   await expect(page.getByText(/added to cart/i)).toBeVisible();
+  await expect(page.getByLabel("Current quantity")).toHaveText("1");
 
-  // The product drawer overlays the header -- close it before the header's Cart
-  // button is clickable. Scoped to the open dialog: every drawer type renders a
-  // "Close" button in the DOM regardless of open state, so an unscoped query is
-  // ambiguous (strict-mode violation), and the full-viewport scrim's own center point
-  // is occluded by the drawer panel itself.
-  await page.getByRole("dialog", { name: "Maroon Floral Cotton Kurta" }).getByRole("button", { name: "Close" }).click();
+  // Quantity controls write through to the backend and render the returned cart.
+  await page.getByRole("button", { name: "Increase quantity" }).click();
+  await expect(page.getByLabel("Current quantity")).toHaveText("2");
+  await page.getByRole("button", { name: "Decrease quantity" }).click();
+  await expect(page.getByLabel("Current quantity")).toHaveText("1");
 
-  // Checkout: real POST /v1/orders, not a fixture confirmation. The header's Cart
-  // button's accessible name concatenates the item-count badge with no separating
-  // space (e.g. "Cart1"), so matching by role+exact-name is fragile once the cart is
-  // non-empty -- scope to the account nav and filter by partial text instead. It may
-  // also be scrolled out of view after closing the drawer.
-  const cartButton = page
-    .getByRole("navigation", { name: "Account navigation" })
-    .getByRole("button")
-    .filter({ hasText: "Cart" });
-  await cartButton.scrollIntoViewIfNeeded();
-  await cartButton.click();
+  // The full product page exposes a direct cart action; checkout remains a real
+  // POST /v1/orders, not a fixture confirmation.
+  await page.getByRole("button", { name: /Go to cart/i }).click();
+  await expect(page.getByRole("dialog", { name: "Shopping cart" })).toBeVisible();
   await page.getByRole("button", { name: "Continue to secure checkout" }).click();
   await page.getByRole("button", { name: /Agent 6.*Verify address/ }).click();
   await expect(page.getByText("Location and PIN agree")).toBeVisible({ timeout: 15_000 });

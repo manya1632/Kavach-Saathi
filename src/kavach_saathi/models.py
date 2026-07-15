@@ -248,11 +248,13 @@ class ReturnAnalyzeRequest(BaseModel):
 
 class CartItemAdd(BaseModel):
     product_variant_id: str
-    qty: int = Field(default=1, ge=1, le=20)
+    qty: int = Field(default=1, ge=1, le=10)
 
 
 class CartItemUpdate(BaseModel):
-    qty: int = Field(ge=1, le=20)
+    # Quantity zero is an intentional, atomic "remove this line" operation. Keeping
+    # it on PATCH lets every quantity control use the same server-authoritative path.
+    qty: int = Field(ge=0, le=10)
 
 
 class OrderCreateRequest(BaseModel):

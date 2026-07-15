@@ -86,8 +86,13 @@ async def add_to_cart(
             CartItem.user_id == user.id, CartItem.product_variant_id == payload.product_variant_id
         )
     ).scalars().first()
+    requested_qty = payload.qty + (existing.qty if existing else 0)
+    if requested_qty > 10:
+        raise HTTPException(status_code=409, detail="A maximum of 10 units is allowed per cart item")
+    if requested_qty > variant.stock_qty:
+        raise HTTPException(status_code=409, detail=f"Only {variant.stock_qty} units are currently available")
     if existing:
-        existing.qty = min(20, existing.qty + payload.qty)
+        existing.qty = requested_qty
     else:
         session.add(CartItem(user_id=user.id, product_variant_id=payload.product_variant_id, qty=payload.qty))
     session.flush()
@@ -104,6 +109,15 @@ async def update_cart_item(
     item = session.get(CartItem, item_id)
     if not item or item.user_id != user.id:
         raise HTTPException(status_code=404, detail="Cart item not found")
+    if payload.qty == 0:
+        session.delete(item)
+        session.flush()
+        return {"items": _load_cart(session, user.id)}
+    variant = session.get(ProductVariant, item.product_variant_id)
+    if not variant:
+        raise HTTPException(status_code=404, detail="Product variant not found")
+    if payload.qty > variant.stock_qty:
+        raise HTTPException(status_code=409, detail=f"Only {variant.stock_qty} units are currently available")
     item.qty = payload.qty
     session.flush()
     return {"items": _load_cart(session, user.id)}

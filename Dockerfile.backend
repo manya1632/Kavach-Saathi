@@ -26,6 +26,7 @@ COPY migrations ./migrations
 # nearly every rebuild. (The separate top-level ./Dockerfile, used for the AWS Lambda
 # deployment in template.yaml, has no such bind mount and must keep its own `COPY
 # assets ./assets` -- do not remove that one.)
+COPY scripts ./scripts
 
 RUN pip install --no-cache-dir --no-deps .
 

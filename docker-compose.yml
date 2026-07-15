@@ -40,6 +40,10 @@ services:
       DATABASE_URL: postgresql+psycopg://kavach:kavach@postgres:5432/kavach_saathi
       REDIS_URL: redis://redis:6379/0
       FRONTEND_ORIGIN: http://localhost:3000
+      # Prefer the copied working tree over the packaged wheel. This makes
+      # scripts/refresh_local.ps1 able to apply backend source changes instantly
+      # without reinstalling the project's large Python dependency set.
+      PYTHONPATH: /app/src
     ports:
       - "8000:8000"
     depends_on:

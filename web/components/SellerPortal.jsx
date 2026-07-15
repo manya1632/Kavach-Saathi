@@ -177,7 +177,7 @@ function AddProductTab({ onCreated }) {
   );
 }
 
-function InventoryTab({ products, onAddVariant }) {
+function InventoryTab({ products, onAddVariant, busyAction }) {
   const [variantForm, setVariantForm] = useState({});
 
   function updateVariant(productId, field, value) {
@@ -200,16 +200,16 @@ function InventoryTab({ products, onAddVariant }) {
           </div>
           <form
             className="variant-form"
-            onSubmit={(event) => {
+            onSubmit={async (event) => {
               event.preventDefault();
               const form = variantForm[product.id] || {};
               if (!form.size || !form.stock_qty) return;
-              onAddVariant(product.id, { size: form.size, stock_qty: Number(form.stock_qty) });
+              await onAddVariant(product.id, { size: form.size, stock_qty: Number(form.stock_qty) });
             }}
           >
             <input placeholder="Size (e.g. M)" value={variantForm[product.id]?.size || ""} onChange={(event) => updateVariant(product.id, "size", event.target.value)} />
             <input placeholder="Stock" type="number" min="0" value={variantForm[product.id]?.stock_qty || ""} onChange={(event) => updateVariant(product.id, "stock_qty", event.target.value)} />
-            <button type="submit"><Boxes size={14} /> Add/update variant</button>
+            <button type="submit" disabled={busyAction === `variant-${product.id}`}>{busyAction === `variant-${product.id}` ? <LoaderCircle className="spin" size={14} /> : <Boxes size={14} />} {busyAction === `variant-${product.id}` ? "Saving…" : "Add/update variant"}</button>
           </form>
         </article>
       ))}
@@ -217,7 +217,7 @@ function InventoryTab({ products, onAddVariant }) {
   );
 }
 
-function OrdersTab({ orders, onMark }) {
+function OrdersTab({ orders, onMark, busyAction }) {
   return (
     <div className="seller-panel">
       {!orders.length && <p className="empty-note">No orders yet for your listings.</p>}
@@ -226,8 +226,8 @@ function OrdersTab({ orders, onMark }) {
           <div><strong>{order.order_id}</strong><span className="status-pill">{order.status}</span></div>
           <p>{order.product_id} · size {order.size || "Standard"} · qty {order.qty} · ₹{order.price_at_purchase}</p>
           <div className="order-actions">
-            <button type="button" onClick={() => onMark(order.order_id, "PACKED")}><Package size={13} /> Mark packed</button>
-            <button type="button" onClick={() => onMark(order.order_id, "SHIPPED")}><ClipboardList size={13} /> Mark shipped</button>
+            <button type="button" disabled={busyAction === `order-${order.order_id}`} onClick={() => onMark(order.order_id, "PACKED")}>{busyAction === `order-${order.order_id}` ? <LoaderCircle className="spin" size={13} /> : <Package size={13} />} Mark packed</button>
+            <button type="button" disabled={busyAction === `order-${order.order_id}`} onClick={() => onMark(order.order_id, "SHIPPED")}>{busyAction === `order-${order.order_id}` ? <LoaderCircle className="spin" size={13} /> : <ClipboardList size={13} />} Mark shipped</button>
           </div>
         </article>
       ))}
@@ -275,6 +275,7 @@ export default function SellerPortal() {
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
   const [toast, setToast] = useState("");
+  const [actionBusy, setActionBusy] = useState("");
 
   useEffect(() => {
     // Reading localStorage must happen post-mount to avoid an SSR/client hydration mismatch.
@@ -311,22 +312,28 @@ export default function SellerPortal() {
   }
 
   async function addVariant(productId, payload) {
+    setActionBusy(`variant-${productId}`);
     try {
       await post(`/seller/products/${productId}/variants`, payload);
       await refreshAll();
       setToast("Variant saved");
     } catch (reason) {
       setToast(reason.message);
+    } finally {
+      setActionBusy("");
     }
   }
 
   async function markOrder(orderId, status) {
+    setActionBusy(`order-${orderId}`);
     try {
       await request(`/seller/orders/${orderId}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
       await refreshAll();
       setToast(`Order ${orderId} marked ${status.toLowerCase()}`);
     } catch (reason) {
       setToast(reason.message);
+    } finally {
+      setActionBusy("");
     }
   }
 
@@ -352,11 +359,11 @@ export default function SellerPortal() {
       <main className="seller-main">
         {tab === "dashboard" && <DashboardTab profile={profile} />}
         {tab === "add" && <AddProductTab onCreated={refreshAll} />}
-        {tab === "inventory" && <InventoryTab products={products} onAddVariant={addVariant} />}
-        {tab === "orders" && <OrdersTab orders={orders} onMark={markOrder} />}
+        {tab === "inventory" && <InventoryTab products={products} onAddVariant={addVariant} busyAction={actionBusy} />}
+        {tab === "orders" && <OrdersTab orders={orders} onMark={markOrder} busyAction={actionBusy} />}
         {tab === "kyc" && <KycTab profile={profile} onRefresh={refreshAll} />}
       </main>
-      {toast && <div className="toast" role="status"><Check size={16} /> {toast}</div>}
+      {toast && <div className="toast" role="status" aria-live="polite"><Check size={16} /> {toast}</div>}
     </div>
   );
 }

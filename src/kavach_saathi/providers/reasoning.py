@@ -166,11 +166,23 @@ class GroqReasoningProvider(ReasoningProvider):
                 **extra_params,
             )
 
-        response = await self._with_rate_limit_retry(invoke)
-        response_text = response.choices[0].message.content
-        if not response_text:
-            raise RuntimeError("Groq returned an empty structured response")
-        return schema.model_validate(json.loads(response_text))
+        try:
+            response = await self._with_rate_limit_retry(invoke)
+            response_text = response.choices[0].message.content
+            if not response_text:
+                raise ReasoningUnavailable("Groq returned an empty structured response")
+            return schema.model_validate(json.loads(response_text))
+        except ReasoningUnavailable:
+            raise
+        except Exception as exc:  # noqa: BLE001 - normalized so CascadingReasoningProvider can fall through
+            # Previously unwrapped: a raw connection/rate-limit/decode error here escaped
+            # past both this class and CascadingReasoningProvider's `except
+            # ReasoningUnavailable` entirely, since neither catches an arbitrary
+            # exception type -- when Groq was the last (or only) configured provider,
+            # that raw error killed the whole workflow instead of triggering the
+            # caller's honest deterministic fallback (observed live: a review-summary
+            # request failed outright on "Connection error." instead of degrading).
+            raise ReasoningUnavailable(str(exc)) from exc
 
 
 class GeminiReasoningProvider(ReasoningProvider):
@@ -226,13 +238,13 @@ class GeminiReasoningProvider(ReasoningProvider):
     ) -> T:
         from google.genai import types
 
-        client = self._client()
-        parts: list[Any] = []
-        for image_bytes in images or []:
-            parts.append(types.Part.from_bytes(data=image_bytes, mime_type="image/png"))
-        parts.append(prompt)
-
         try:
+            client = self._client()
+            parts: list[Any] = []
+            for image_bytes in images or []:
+                parts.append(types.Part.from_bytes(data=image_bytes, mime_type="image/png"))
+            parts.append(prompt)
+
             response = client.models.generate_content(
                 model=self.settings.gemini_reasoning_model,
                 contents=parts,
@@ -243,14 +255,23 @@ class GeminiReasoningProvider(ReasoningProvider):
                     temperature=0,
                 ),
             )
-        except Exception as exc:  # noqa: BLE001 - normalized into a typed error the agent can catch
-            raise ReasoningUnavailable(str(exc)) from exc
 
-        if getattr(response, "parsed", None) is not None:
-            return response.parsed
-        if not response.text:
-            raise ReasoningUnavailable("Gemini returned an empty structured response")
-        return schema.model_validate(json.loads(response.text))
+            if getattr(response, "parsed", None) is not None:
+                return response.parsed
+            if not response.text:
+                raise ReasoningUnavailable("Gemini returned an empty structured response")
+            return schema.model_validate(json.loads(response.text))
+        except ReasoningUnavailable:
+            raise
+        except Exception as exc:  # noqa: BLE001 - normalized so CascadingReasoningProvider can fall through
+            # Previously only the generate_content() call itself was wrapped -- client
+            # construction and the response.parsed/json.loads/model_validate
+            # post-processing sat outside the try, so a raw connection error or a
+            # malformed response there escaped past both this class and
+            # CascadingReasoningProvider's `except ReasoningUnavailable` entirely,
+            # killing the whole workflow instead of falling through to Groq (or, if
+            # Groq also fails, to the caller's honest deterministic fallback).
+            raise ReasoningUnavailable(str(exc)) from exc
 
 
 class CascadingReasoningProvider(ReasoningProvider):

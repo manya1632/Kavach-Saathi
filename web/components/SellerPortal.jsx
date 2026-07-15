@@ -13,6 +13,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 import { loadAuthSession, login, logout, post, postAndPoll, request, saveAuthSession, signup } from "@/lib/api";
 
@@ -27,6 +28,22 @@ const CATEGORIES = [
   "Jewellery & Accessories",
   "Bags & Footwear",
 ];
+
+const SPEC_TEMPLATES = {
+  "Kurti, Saree & Lehenga": [["fabric", "Fabric composition", "text", "%", "fabric"], ["gsm", "Fabric weight", "number", "GSM", "fabric"], ["color_hex", "Color hex", "text", "", "color"]],
+  "Women Western": [["fabric", "Fabric composition", "text", "%", "fabric"], ["fit", "Fit", "text", "", "construction"], ["color_hex", "Color hex", "text", "", "color"]],
+  Lingerie: [["fabric", "Fabric composition", "text", "%", "fabric"], ["support_level", "Support level", "text", "", "performance"]],
+  Men: [["fabric", "Fabric composition", "text", "%", "fabric"], ["gsm", "Fabric weight", "number", "GSM", "fabric"], ["fit", "Fit", "text", "", "construction"]],
+  "Kids & Toys": [["material", "Material", "text", "", "construction"], ["recommended_age", "Recommended age", "text", "", "safety"]],
+  "Home & Kitchen": [["material", "Material", "text", "", "construction"], ["length_cm", "Length", "measurement", "cm", "dimensions"], ["width_cm", "Width", "measurement", "cm", "dimensions"]],
+  "Beauty & Health": [["net_quantity", "Net quantity", "number", "ml", "quantity"], ["skin_type", "Suitable skin type", "text", "", "performance"]],
+  "Jewellery & Accessories": [["base_metal", "Base metal", "text", "", "construction"], ["plating", "Plating", "text", "", "construction"], ["stone_type", "Stone type", "text", "", "construction"]],
+  "Bags & Footwear": [["material", "Material", "text", "", "construction"], ["capacity_l", "Capacity", "number", "L", "dimensions"], ["sole_material", "Sole material", "text", "", "construction"]],
+};
+
+function specificationTemplate(category) {
+  return (SPEC_TEMPLATES[category] || [["material", "Material", "text", "", "general"]]).map(([key, label, value_type, unit, comparison_group]) => ({ key, label, value: "", value_type, unit, comparison_group }));
+}
 
 function SellerAuth({ onAuthenticated }) {
   const [mode, setMode] = useState("login");
@@ -58,7 +75,7 @@ function SellerAuth({ onAuthenticated }) {
   }
 
   return (
-    <div className="seller-auth-shell">
+    <div className="seller-auth-page"><header className="portal-public-header"><Link className="logo" href="/"><span>K</span><div><strong>Kavach</strong><small>SAATHI SHOP</small></div></Link><nav><Link href="/">Home</Link><Link href="/#products">Shop</Link><span>Seller Portal</span></nav></header><main className="seller-auth-shell">
       <div className="seller-auth-card">
         <div className="seller-brand"><ShieldCheck size={22} /><div><strong>Kavach Saathi</strong><small>Seller Portal</small></div></div>
         <div className="auth-tabs">
@@ -78,7 +95,7 @@ function SellerAuth({ onAuthenticated }) {
           <button className="primary-cta wide" type="submit" disabled={busy}>{busy ? <LoaderCircle className="spin" size={16} /> : null} {mode === "login" ? "Log in" : "Create seller account"}</button>
         </form>
       </div>
-    </div>
+    </main><footer className="portal-public-footer"><strong>Kavach Saathi</strong><span>Protected commerce for buyers and sellers</span><Link href="/">Return to storefront</Link></footer></div>
   );
 }
 
@@ -100,7 +117,9 @@ function DashboardTab({ profile }) {
 }
 
 function AddProductTab({ onCreated }) {
-  const [form, setForm] = useState({ title: "", category: CATEGORIES[0], price: "", original_price: "", description: "" });
+  const [form, setForm] = useState({ title: "", brand: "", category: CATEGORIES[0], price: "", original_price: "", description: "", stock_qty: "" });
+  const [specifications, setSpecifications] = useState(() => specificationTemplate(CATEGORIES[0]));
+  const [sizes, setSizes] = useState([]);
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
@@ -109,6 +128,14 @@ function AddProductTab({ onCreated }) {
 
   function update(field, value) {
     setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateSpec(index, field, value) {
+    setSpecifications((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item));
+  }
+
+  function parseDimensions(value) {
+    return Object.fromEntries(value.split(",").map((part) => part.split(":").map((item) => item.trim())).filter((pair) => pair.length === 2 && pair[0] && !Number.isNaN(Number(pair[1]))).map(([key, amount]) => [key.toLowerCase().replace(/\s+/g, "_"), Number(amount)]));
   }
 
   async function handleSubmit(event) {
@@ -122,19 +149,35 @@ function AddProductTab({ onCreated }) {
       const presign = await post("/uploads/presign", { kind: "catalogue", filename: file.name, content_type: file.type || "image/png" });
       await fetch(presign.upload_url, { method: "PUT", body: file, headers: { "Content-Type": file.type || "image/png" } });
 
+      const submittedSpecs = specifications.filter((item) => item.key && item.label && item.value !== "").map((item) => ({
+        ...item,
+        value: ["number", "percentage", "measurement"].includes(item.value_type) ? Number(item.value) : item.value,
+        unit: item.unit || null,
+        comparison_group: item.comparison_group || "general",
+        comparable: true,
+      }));
+      if (!submittedSpecs.length) throw new Error("Add at least one product-specific specification");
+      const submittedSizes = sizes.filter((row) => row.size).map((row) => ({
+        size: row.size, dimensions_cm: parseDimensions(row.dimensions), stock_qty: Number(row.stock_qty || 0),
+      }));
+      const sellerSpecs = Object.fromEntries(submittedSpecs.map((item) => [item.key, item.value]));
       const product = await post("/seller/products", {
         title: form.title,
+        brand: form.brand || null,
         category: form.category,
         description: form.description,
         price: Number(form.price),
         original_price: Number(form.original_price),
         image_keys: [presign.object_key],
+        stock_qty: Number(form.stock_qty || 0),
+        specifications: submittedSpecs,
+        size_chart: submittedSizes,
       });
 
       setProgress("Agent 1 (SAM 2.0 + Nano Banana 2 / Stable Diffusion) and Agent 2 (Claude OCR + CLIP/ResNet-50) are verifying this listing — image generation can take several minutes on CPU.");
       const analysis = await postAndPoll(
         "/listings/analyze",
-        { seller_id: product.seller_id, product_id: product.id, image_keys: [presign.object_key], seller_specs: {} },
+        { seller_id: product.seller_id, product_id: product.id, image_keys: [presign.object_key], seller_specs: sellerSpecs },
         { onTick: () => setProgress((current) => current + ".") },
       ).catch((reason) => ({ status: "failed", error: reason.message }));
 
@@ -152,14 +195,36 @@ function AddProductTab({ onCreated }) {
     <div className="seller-panel">
       <form className="auth-form" onSubmit={handleSubmit}>
         <label>Product title<input value={form.title} onChange={(event) => update("title", event.target.value)} required /></label>
+        <label>Brand<input value={form.brand} onChange={(event) => update("brand", event.target.value)} /></label>
         <label>Category
-          <select value={form.category} onChange={(event) => update("category", event.target.value)}>
+          <select value={form.category} onChange={(event) => { update("category", event.target.value); setSpecifications(specificationTemplate(event.target.value)); }}>
             {CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
           </select>
         </label>
         <label>Description<input value={form.description} onChange={(event) => update("description", event.target.value)} /></label>
         <label>Price (₹)<input type="number" min="1" value={form.price} onChange={(event) => update("price", event.target.value)} required /></label>
         <label>Original price (₹)<input type="number" min="1" value={form.original_price} onChange={(event) => update("original_price", event.target.value)} required /></label>
+        <label>Standard stock (used when there is no size chart)<input type="number" min="0" value={form.stock_qty} onChange={(event) => update("stock_qty", event.target.value)} /></label>
+        <fieldset className="dynamic-specs"><legend>Product-specific specifications</legend><small>Add only fields that apply to this product. They are stored for grounded comparisons.</small>
+          {specifications.map((item, index) => <div className="dynamic-spec-row" key={`${item.key}-${index}`}>
+            <input placeholder="Key" value={item.key} onChange={(event) => updateSpec(index, "key", event.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_"))} required />
+            <input placeholder="Display label" value={item.label} onChange={(event) => updateSpec(index, "label", event.target.value)} required />
+            <input placeholder="Value" value={item.value} onChange={(event) => updateSpec(index, "value", event.target.value)} required />
+            <select value={item.value_type} onChange={(event) => updateSpec(index, "value_type", event.target.value)}><option value="text">Text</option><option value="number">Number</option><option value="percentage">Percentage</option><option value="measurement">Measurement</option></select>
+            <input placeholder="Unit" value={item.unit} onChange={(event) => updateSpec(index, "unit", event.target.value)} />
+            <button type="button" onClick={() => setSpecifications((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</button>
+          </div>)}
+          <button className="secondary-cta" type="button" onClick={() => setSpecifications((current) => [...current, { key: "", label: "", value: "", value_type: "text", unit: "", comparison_group: "general" }])}>Add specification</button>
+        </fieldset>
+        <fieldset className="dynamic-specs"><legend>Size chart (optional)</legend><small>Measurements are in cm. Use any applicable key:value dimensions.</small>
+          {sizes.map((row, index) => <div className="dynamic-size-row" key={index}>
+            <input placeholder="Size (e.g. M)" value={row.size} onChange={(event) => setSizes((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, size: event.target.value } : item))} />
+            <input placeholder="chest:91, waist:85, length:112" value={row.dimensions} onChange={(event) => setSizes((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, dimensions: event.target.value } : item))} />
+            <input type="number" min="0" placeholder="Stock" value={row.stock_qty} onChange={(event) => setSizes((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, stock_qty: event.target.value } : item))} />
+            <button type="button" onClick={() => setSizes((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</button>
+          </div>)}
+          <button className="secondary-cta" type="button" onClick={() => setSizes((current) => [...current, { size: "", dimensions: "", stock_qty: "" }])}>Add size</button>
+        </fieldset>
         <label>Catalogue photo (1–2 images per the plan; upload one to start)<input type="file" accept="image/*" onChange={(event) => setFile(event.target.files?.[0] || null)} required /></label>
         {error && <p className="auth-error">{error}</p>}
         <button className="primary-cta wide" type="submit" disabled={busy}>{busy ? <LoaderCircle className="spin" size={16} /> : <Upload size={16} />} Create listing &amp; run Agent 1 + 2</button>
@@ -193,6 +258,8 @@ function InventoryTab({ products, onAddVariant, busyAction }) {
             <strong>{product.title}</strong>
             <span className={`status-pill ${product.status}`}>{product.status}</span>
             <p>{product.category} · ₹{product.price} · spec source: {product.spec_source}</p>
+            {!!product.specifications?.length && <p>{product.specifications.map((item) => `${item.label}: ${item.value}${item.unit ? ` ${item.unit}` : ""}`).join(" · ")}</p>}
+            {!!Object.keys(product.size_chart || {}).length && <p>Size chart: {Object.entries(product.size_chart).map(([size, dimensions]) => `${size} (${Object.entries(dimensions).map(([key, value]) => `${key} ${value}cm`).join(", ")})`).join(" · ")}</p>}
             {product.stolen_photo_flag && <p className="warn-note">Flagged: possible copied catalogue photo</p>}
           </div>
           <div className="variant-list">

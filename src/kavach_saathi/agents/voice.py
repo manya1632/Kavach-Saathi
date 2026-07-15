@@ -70,6 +70,8 @@ class VoiceQAAgent(Agent):
                     f"{product['name']} ({product.get('brand', 'unknown brand')}), "
                     f"category {product['category']}, price Rs {product['price']}, "
                     f"specs: {product.get('specs', {})}, "
+                    f"structured specifications: {product.get('specifications', [])}, "
+                    f"size chart cm: {product.get('size_chart', {})}, "
                     f"return window {product.get('return_window_days', 7)} days, "
                     f"description: {product.get('description', '')}"
                 ),
@@ -103,29 +105,54 @@ class VoiceQAAgent(Agent):
             transcript, namespace="resolved_qa", top_k=3, filter={"product_id": {"$in": product_ids}}
         )
 
-        grounded = {
-            "question": transcript,
-            "products": [
+        grounded_products = [
                 {
                     "id": p["id"],
                     "name": p["name"],
                     "price": p["price"],
                     "specs": p.get("specs", {}),
+                    "specifications": p.get("specifications", []),
+                    "size_chart_cm": p.get("size_chart", {}),
                     "return_window_days": p.get("return_window_days", 7),
                     "seller": sellers[p["seller_id"]],
                 }
                 for p in products
-            ],
+            ]
+        grounded = {
+            "question": transcript,
+            "products": grounded_products,
             "retrieved_knowledge_and_reviews": knowledge_matches,
             "previously_resolved_similar_questions": resolved_qa_matches,
             "buyer_language": buyer.get("language", "hi"),
         }
-        answer = await self.context.reasoner.structured(
-            system=_SYSTEM_PROMPT,
-            prompt=f"Question: {transcript}\nEvidence: {json.dumps(grounded, ensure_ascii=False, default=str)}",
-            schema=VoiceAnswer,
-            reasoning_effort="low",
-        )
+        if len(grounded_products) <= 20:
+            answer = await self.context.reasoner.structured(
+                system=_SYSTEM_PROMPT,
+                prompt=f"Question: {transcript}\nEvidence: {json.dumps(grounded, ensure_ascii=False, default=str)}",
+                schema=VoiceAnswer,
+                reasoning_effort="low",
+            )
+        else:
+            # Category-wide comparisons can contain dozens of products. Every record
+            # is processed in bounded groups, then a final grounded synthesis receives
+            # each group answer and the complete ID list so nothing is silently cut.
+            partial_answers = []
+            for start in range(0, len(grounded_products), 20):
+                chunk = grounded_products[start:start + 20]
+                partial = await self.context.reasoner.structured(
+                    system=_SYSTEM_PROMPT,
+                    prompt=f"Compare this complete subset for: {transcript}\nProducts: {json.dumps(chunk, ensure_ascii=False, default=str)}",
+                    schema=VoiceAnswer,
+                    reasoning_effort="low",
+                )
+                partial_answers.append(partial.model_dump())
+            answer = await self.context.reasoner.structured(
+                system=_SYSTEM_PROMPT,
+                prompt=(f"Synthesize the category-wide comparison for: {transcript}\n"
+                        f"All product IDs: {product_ids}\nSubset answers: {json.dumps(partial_answers, ensure_ascii=False)}"),
+                schema=VoiceAnswer,
+                reasoning_effort="low",
+            )
 
         # Learning loop: embed this resolved Q&A pair back into the index so a future
         # semantically similar question retrieves it as grounding context too.
@@ -154,6 +181,15 @@ class VoiceQAAgent(Agent):
             lines = {code: [f"{p['name']}: ₹{p['price']}" for p in products] for code in _LANGUAGE_CODES}
             lines["en"] = [f"{p['name']}: Rs {p['price']}" for p in products]
             joined = {code: "; ".join(items) for code, items in lines.items()}
+            comparable_details = " | ".join(
+                f"{product['name']}: " + ", ".join(
+                    f"{item['label']}={item['value']}{(' ' + item['unit']) if item.get('unit') else ''}"
+                    for item in product.get("specifications", []) if item.get("comparable", True)
+                )
+                for product in products
+            )
+            if comparable_details.strip(" |:"):
+                joined = {code: f"{text}; {comparable_details}" for code, text in joined.items()}
             return {
                 "en": "Comparing verified listings: " + joined["en"] + ".",
                 "hi": "वेरिफाइड लिस्टिंग की तुलना: " + joined["hi"] + "।",
@@ -190,12 +226,6 @@ class VoiceQAAgent(Agent):
     async def run(self, request: VoiceQueryRequest, size_result: AgentResult | None = None) -> AgentResult:
         settings = get_settings()
         buyer = self.context.repository.get("buyers", request.buyer_id)
-        product = self.context.repository.get("products", request.product_id)
-        products = [product] + [
-            self.context.repository.get("products", pid) for pid in request.compare_product_ids
-        ]
-        sellers = {p["seller_id"]: self.context.repository.get("sellers", p["seller_id"]) for p in products}
-
         transcript_source = "text"
         if request.text:
             transcript = request.text
@@ -210,6 +240,13 @@ class VoiceQAAgent(Agent):
             except (SarvamUnavailable, FileNotFoundError):
                 transcript = "Mujhe kaunsa size lena chahiye?"
                 transcript_source = "sarvam_unavailable_demo_transcript"
+
+        products = self.context.repository.comparison_products(
+            transcript, request.product_id, request.compare_product_ids
+        )
+        if not products:
+            products = [self.context.repository.get("products", request.product_id)]
+        sellers = {p["seller_id"]: self.context.repository.get("sellers", p["seller_id"]) for p in products}
 
         rag_error: str | None = None
         if size_result:

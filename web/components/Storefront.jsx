@@ -6,6 +6,7 @@ import {
   BadgeCheck,
   Camera,
   Check,
+  ChevronDown,
   ChevronRight,
   CircleUserRound,
   Headphones,
@@ -18,6 +19,7 @@ import {
   Mic,
   Minus,
   PackageCheck,
+  Package,
   Plus,
   RotateCcw,
   Search,
@@ -35,10 +37,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   addToCart as apiAddToCart,
+  addWishlist,
   assetUrl,
   createOrder,
+  createReturnRequest,
   createReview,
   getCart,
+  getWishlist,
+  listMyOrders,
+  listMyReturns,
   loadAuthSession,
   login,
   logout,
@@ -46,6 +53,7 @@ import {
   post,
   postAndPoll,
   removeCartItem,
+  removeWishlist,
   request,
   signup,
   updateCartItem,
@@ -94,15 +102,15 @@ function money(value) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(value);
 }
 
-function ProductCard({ product, onOpen, onAdd, pending }) {
+function ProductCard({ product, onOpen, onAdd, onWishlist, wished, pending }) {
   const needsSize = Object.keys(product.size_chart || {}).length > 0;
   return (
     <article className="product-card" data-testid={`product-${product.id}`} data-category={product.category}>
-      <button className="product-visual" type="button" onClick={() => onOpen(product)} aria-label={`Open ${product.name}`}>
+      <div className="product-visual" role="button" tabIndex={0} onClick={() => onOpen(product)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpen(product); }} aria-label={`Open ${product.name}`}>
         <img src={assetUrl(product.image_url)} alt={product.name} />
         <span className="agent-checked"><ShieldCheck size={13} /> Agent checked</span>
-        <span className="heart"><Heart size={17} /></span>
-      </button>
+        <button className={`heart ${wished ? "active" : ""}`} type="button" onClick={(event) => { event.stopPropagation(); onWishlist(product); }} aria-label={wished ? `Remove ${product.name} from wishlist` : `Add ${product.name} to wishlist`}><Heart size={17} fill={wished ? "currentColor" : "none"} /></button>
+      </div>
       <div className="product-info">
         <p className="product-brand">{product.brand}</p>
         <button className="product-name" type="button" onClick={() => onOpen(product)}>{product.name}</button>
@@ -179,7 +187,7 @@ function TrustDock({ trust, busy, onClose, onRunAll }) {
   );
 }
 
-function ProductPageView({ product, busy, cart, cartBusy, onBack, onClose, onAdd, onUpdateCart, onOpenCart, onSize, onReview, onAsk, onAskVoice, voiceAudioUrl, agentAnswer, onSubmitReview }) {
+function ProductPageView({ product, busy, cart, cartBusy, onBack, onClose, onAdd, onUpdateCart, onOpenCart, onWishlist, wished, onSize, onReview, onAsk, onAskVoice, voiceAudioUrl, agentAnswer, onSubmitReview }) {
   const [size, setSize] = useState("M");
   const [question, setQuestion] = useState("Iska fabric aur return policy batao");
   const [reviewRating, setReviewRating] = useState(5);
@@ -238,13 +246,14 @@ function ProductPageView({ product, busy, cart, cartBusy, onBack, onClose, onAdd
         <button type="button" onClick={onBack} aria-label="Back to previous page"><ArrowLeft size={20} /></button>
         <Link className="logo" href="/" aria-label="Kavach Saathi home"><span>K</span><div><strong>Kavach</strong><small>SAATHI SHOP</small></div></Link>
         <div className="product-page-header-actions">
+          <button type="button" onClick={() => onWishlist(product)} aria-label={wished ? "Remove from wishlist" : "Add to wishlist"}><Heart size={19} fill={wished ? "currentColor" : "none"} /></button>
           <button type="button" onClick={onOpenCart} aria-label={`Open cart with ${cart.reduce((sum, item) => sum + item.qty, 0)} items`}><ShoppingCart size={19} /><span>Cart</span>{cart.length > 0 && <b>{cart.reduce((sum, item) => sum + item.qty, 0)}</b>}</button>
           <button type="button" onClick={onClose} aria-label="Close product details"><X size={20} /></button>
         </div>
       </header>
       <main className="product-page" aria-label={product.name}>
-        <div className="drawer-gallery">
-          <img src={assetUrl(product.image_url)} alt={product.name} />
+        <div className="drawer-gallery four-view-gallery">
+          {(product.catalogue_images?.length ? product.catalogue_images : ["front", "back", "left", "right"].map((angle) => ({ angle, url: product.image_url }))).map((image) => <figure key={image.angle}><img src={assetUrl(image.url)} alt={`${product.name} ${image.angle} view`} /><figcaption>{image.angle === "left" || image.angle === "right" ? `${image.angle} side` : image.angle}</figcaption></figure>)}
           <span><ShieldCheck size={15} /> Catalogue & specs checked</span>
         </div>
         <div className="drawer-content">
@@ -266,6 +275,12 @@ function ProductPageView({ product, busy, cart, cartBusy, onBack, onClose, onAdd
             <div><dt>Care</dt><dd>{product.specs.wash_care}</dd></div>
             <div><dt>Return</dt><dd>{product.return_window_days} days</dd></div>
           </dl>
+
+          <section className="product-specifications"><div className="section-label"><strong>Product specifications</strong><small>Stored listing data used for grounded comparisons</small></div><dl>
+            {(product.specifications?.length ? product.specifications : Object.entries(product.specs || {}).map(([key, value]) => ({ key, label: key.replaceAll("_", " "), value }))).map((item) => <div key={item.key}><dt>{item.label}</dt><dd>{item.key.includes("color") && /^#[0-9a-f]{6}$/i.test(String(item.value)) && <i className="color-swatch" style={{ background: item.value }} />}{Array.isArray(item.value) ? item.value.join(", ") : String(item.value)}{item.unit ? ` ${item.unit}` : ""}<small>{item.verified ? "Verified" : "Seller specified"}</small></dd></div>)}
+          </dl></section>
+
+          {!!sizes.length && <section className="size-chart"><div className="section-label"><strong>Size chart</strong><small>Garment measurements in cm</small></div><div className="size-chart-scroll"><table><thead><tr><th>Size</th>{Array.from(new Set(Object.values(product.size_chart).flatMap((row) => Object.keys(row)))).map((key) => <th key={key}>{key.replaceAll("_", " ")} (cm)</th>)}</tr></thead><tbody>{Object.entries(product.size_chart).map(([chartSize, dimensions]) => <tr key={chartSize}><th>{chartSize}</th>{Array.from(new Set(Object.values(product.size_chart).flatMap((row) => Object.keys(row)))).map((key) => <td key={key}>{dimensions[key] ?? "—"}</td>)}</tr>)}</tbody></table></div></section>}
 
           {!!product.highlights?.length && <div className="product-highlights"><strong>Why shoppers choose it</strong><ul>{product.highlights.map((highlight) => <li key={highlight}><Check size={12} /> {highlight}</li>)}</ul>{product.presentation?.why_it_wins && <p><Sparkles size={13} /> {product.presentation.why_it_wins}</p>}</div>}
 
@@ -336,6 +351,17 @@ function CartDrawer({ items, open, busyItem, onClose, onUpdate, onRemove, onChec
       </aside>
     </div>
   );
+}
+
+function AccountDataDrawer({ type, open, orders, wishlist, returns, onClose, onOpenProduct, onRemoveWishlist, onStartReturn }) {
+  const title = type === "orders" ? "My Orders" : type === "wishlist" ? "My Wishlist" : "My Returns";
+  const items = type === "orders" ? orders : type === "wishlist" ? wishlist : returns;
+  return <div className={`drawer-layer ${open ? "open" : ""}`} aria-hidden={!open}><button className="drawer-scrim" type="button" onClick={onClose} aria-label={`Close ${title}`} /><aside className="side-drawer account-data-drawer" role="dialog" aria-modal="true" aria-label={title}><div className="side-heading"><div><p>YOUR ACCOUNT</p><h2>{title}</h2></div><button type="button" onClick={onClose} aria-label="Close"><X size={20} /></button></div><div className="account-data-list">
+    {!items.length && <div className="cart-empty"><Package size={34} /><p>No {title.toLowerCase()} yet.</p></div>}
+    {type === "orders" && orders.map((order) => <article className="account-record" key={order.id}><div><strong>{order.id}</strong><span>{order.status}</span></div><p>{new Date(order.created_at).toLocaleDateString("en-IN")} · {money(order.total_amount)} · {order.payment_mode?.toUpperCase()}</p>{order.items.map((item) => <button type="button" key={`${order.id}-${item.product_id}`} onClick={() => onOpenProduct(item.product_id)}><img src={assetUrl(item.image_url)} alt="" /><span>{item.product_name}<small>Size {item.size || "Standard"} · Qty {item.qty}</small></span></button>)}{order.status === "DELIVERED" ? <button className="secondary-cta" type="button" onClick={() => onStartReturn(order.id)}>Request return</button> : <small>Return becomes available after delivery.</small>}</article>)}
+    {type === "wishlist" && wishlist.map((item) => <article className="account-record wishlist-record" key={item.id}><button type="button" onClick={() => onOpenProduct(item.product.id)}><img src={assetUrl(item.product.image_url)} alt="" /><span><strong>{item.product.name}</strong><small>{money(item.product.price)} · {item.product.stock} available</small></span></button><button className="secondary-cta" type="button" onClick={() => onRemoveWishlist(item.product.id)}>Remove</button></article>)}
+    {type === "returns" && returns.map((item) => <article className="account-record" key={item.id}><div><strong>{item.id}</strong><span>{item.status}</span></div><p>Order {item.order_id}</p><p>{item.reason}</p>{item.confidence_score != null && <small>Agent confidence: {item.confidence_score}%</small>}</article>)}
+  </div></aside></div>;
 }
 
 function CheckoutDrawer({ open, context, busy, step, verifiedAddress, orderId, onClose, onVerify, onConfirm, onReturn, addressRaw, addressPin, onAddressRawChange, onAddressPinChange, buyerName }) {
@@ -483,6 +509,10 @@ export default function Storefront({ initialProductId = null }) {
   const [addressRaw, setAddressRaw] = useState("");
   const [addressPin, setAddressPin] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [wishlist, setWishlist] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [returns, setReturns] = useState([]);
 
   useEffect(() => {
     // Restoring the browser session is intentionally client-only; the server render
@@ -535,6 +565,27 @@ export default function Storefront({ initialProductId = null }) {
       .catch((reason) => setToast(reason.message || "Could not load your cart"));
   }, [auth?.user]);
 
+  async function refreshAccountData() {
+    if (!auth?.user || auth.user.role !== "buyer") {
+      setWishlist([]); setOrders([]); setReturns([]);
+      return;
+    }
+    const [wishlistData, orderData, returnData] = await Promise.all([getWishlist(), listMyOrders(), listMyReturns()]);
+    setWishlist(wishlistData.items); setOrders(orderData); setReturns(returnData);
+  }
+
+  useEffect(() => {
+    if (auth?.user?.role !== "buyer") return undefined;
+    let active = true;
+    Promise.all([getWishlist(), listMyOrders(), listMyReturns()])
+      .then(([wishlistData, orderData, returnData]) => {
+        if (!active) return;
+        setWishlist(wishlistData.items); setOrders(orderData); setReturns(returnData);
+      })
+      .catch((reason) => { if (active) setToast(reason.message); });
+    return () => { active = false; };
+  }, [auth?.user]);
+
   function requireAuth(action) {
     if (auth?.user) {
       action(auth.user.id);
@@ -558,6 +609,29 @@ export default function Storefront({ initialProductId = null }) {
     logout();
     setAuth(null);
     setToast("Logged out");
+    setAccountMenuOpen(false);
+  }
+
+  function toggleWishlist(product) {
+    requireAuth(async () => {
+      try {
+        const wished = wishlist.some((item) => item.product.id === product.id);
+        if (wished) await removeWishlist(product.id); else await addWishlist(product.id);
+        await refreshAccountData();
+        setToast(wished ? "Removed from wishlist" : "Saved to wishlist");
+      } catch (reason) { setToast(reason.message || "Could not update wishlist"); }
+    });
+  }
+
+  async function startReturn(orderId) {
+    const reason = window.prompt("Why are you returning this order?");
+    if (!reason) return;
+    try {
+      await createReturnRequest(orderId, reason);
+      await refreshAccountData();
+      setDrawer("returns");
+      setToast("Return request created. Add evidence for Agent 8 review.");
+    } catch (reasonError) { setToast(reasonError.message || "Could not create return"); }
   }
 
   async function changeLanguage(languageCode) {
@@ -832,16 +906,19 @@ export default function Storefront({ initialProductId = null }) {
           onAdd={addToCart}
           onUpdateCart={updateCartQuantity}
           onOpenCart={() => setDrawer("cart")}
+          onWishlist={toggleWishlist}
+          wished={wishlist.some((item) => item.product.id === selected.id)}
           onSize={recommendSize}
           onReview={checkReview}
           onAsk={askQuestion}
           onAskVoice={askVoice}
           voiceAudioUrl={audioUrl(voiceAudioKey)}
-          onSubmitReview={submitReview}
           agentAnswer={agentAnswer}
+          onSubmitReview={submitReview}
         />
         <CartDrawer items={cart} open={drawer === "cart"} busyItem={cartBusy} onClose={() => setDrawer(null)} onUpdate={updateCartQuantity} onRemove={removeFromCart} onCheckout={() => requireAuth(() => { setDrawer("checkout"); setCheckoutStep("address"); setVerifiedAddress(false); setVerifiedAddressId(null); })} />
         <CheckoutDrawer open={drawer === "checkout"} context={context} busy={busy} step={checkoutStep} verifiedAddress={verifiedAddress} orderId={lastOrderId} onClose={() => setDrawer(null)} onVerify={verifyAddress} onConfirm={confirmOrder} onReturn={checkReturn} addressRaw={addressRaw} addressPin={addressPin} onAddressRawChange={setAddressRaw} onAddressPinChange={setAddressPin} buyerName={auth?.user?.name} />
+        <AccountDataDrawer type={drawer} open={["orders", "wishlist", "returns"].includes(drawer)} orders={orders} wishlist={wishlist} returns={returns} onClose={() => setDrawer(null)} onOpenProduct={(productId) => router.push(`/products/${productId}`)} onRemoveWishlist={(productId) => toggleWishlist({ id: productId })} onStartReturn={startReturn} />
         <TrustDock trust={trust} busy={busy} onClose={() => setTrust((current) => ({ ...current, open: false }))} onRunAll={runAll} />
         <AuthModal open={authModalOpen} onClose={() => { setAuthModalOpen(false); setPendingAfterAuth(null); }} onAuthenticated={handleAuthenticated} />
         {toast && <div className="toast" role="status" aria-live="polite"><Check size={16} /> {toast}</div>}
@@ -865,7 +942,13 @@ export default function Storefront({ initialProductId = null }) {
                     {LANGUAGE_OPTIONS.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}
                   </select>
                 </label>
-                <button type="button" onClick={() => { handleLogout(); setMobileNavOpen(false); }} title={auth.user.email || auth.user.phone}><CircleUserRound size={19} /><span>{auth.user.name}</span><LogOut size={14} /></button>
+                <div className="account-menu"><button type="button" onClick={() => setAccountMenuOpen((open) => !open)} aria-expanded={accountMenuOpen} title={auth.user.email || auth.user.phone}><CircleUserRound size={19} /><span>{auth.user.name}</span><ChevronDown size={14} /></button>{accountMenuOpen && <div className="account-dropdown">
+                  <button type="button" onClick={() => { setDrawer("orders"); setAccountMenuOpen(false); }}>My Orders <small>{orders.length}</small></button>
+                  <button type="button" onClick={() => { setDrawer("cart"); setAccountMenuOpen(false); }}>My Cart <small>{cart.reduce((sum, item) => sum + item.qty, 0)}</small></button>
+                  <button type="button" onClick={() => { setDrawer("wishlist"); setAccountMenuOpen(false); }}>My Wishlist <small>{wishlist.length}</small></button>
+                  <button type="button" onClick={() => { setDrawer("returns"); setAccountMenuOpen(false); }}>My Returns <small>{returns.length}</small></button>
+                  <button type="button" onClick={() => { handleLogout(); setMobileNavOpen(false); }}><LogOut size={14} /> Logout</button>
+                </div>}</div>
               </>
             ) : (
               <button type="button" onClick={() => { setAuthModalOpen(true); setMobileNavOpen(false); }}><CircleUserRound size={19} /><span>Login</span></button>
@@ -901,7 +984,7 @@ export default function Storefront({ initialProductId = null }) {
         <section className="catalogue" id="products">
           <div className="section-heading"><div><p>{category === "All" ? "ALL 10 CATEGORIES REPRESENTED" : category.toUpperCase()}</p><h2>Products worth discovering</h2></div><span>Showing {displayedProducts.length} of {visibleProducts.length} products · {category === "All" ? "50 available in every category" : "Full category catalogue"}</span></div>
           {error && <div className="error-state"><ShieldCheck /><p><strong>Storefront API is unavailable.</strong>{error}</p></div>}
-          {loading ? <div className="loading-grid">{Array.from({ length: 10 }, (_, index) => <div key={index}></div>)}</div> : <><div className="product-grid">{displayedProducts.map((product) => <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} pending={cartBusy === variantIdFor(product, "Standard")} />)}</div>{displayedProducts.length < visibleProducts.length && <button className="load-more" type="button" onClick={() => setVisibleCount((count) => count + 50)}>Load 50 more products <ChevronRight size={16} /></button>}</>}
+          {loading ? <div className="loading-grid">{Array.from({ length: 10 }, (_, index) => <div key={index}></div>)}</div> : <><div className="product-grid">{displayedProducts.map((product) => <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} onWishlist={toggleWishlist} wished={wishlist.some((item) => item.product.id === product.id)} pending={cartBusy === variantIdFor(product, "Standard")} />)}</div>{displayedProducts.length < visibleProducts.length && <button className="load-more" type="button" onClick={() => setVisibleCount((count) => count + 50)}>Load 50 more products <ChevronRight size={16} /></button>}</>}
         </section>
 
         <section className="safety-story">
@@ -916,6 +999,7 @@ export default function Storefront({ initialProductId = null }) {
       <TrustDock trust={trust} busy={busy} onClose={() => setTrust((current) => ({ ...current, open: false }))} onRunAll={runAll} />
       <CartDrawer items={cart} open={drawer === "cart"} busyItem={cartBusy} onClose={() => setDrawer(null)} onUpdate={updateCartQuantity} onRemove={removeFromCart} onCheckout={() => requireAuth(() => { setDrawer("checkout"); setCheckoutStep("address"); setVerifiedAddress(false); setVerifiedAddressId(null); })} />
       <CheckoutDrawer open={drawer === "checkout"} context={context} busy={busy} step={checkoutStep} verifiedAddress={verifiedAddress} orderId={lastOrderId} onClose={() => setDrawer(null)} onVerify={verifyAddress} onConfirm={confirmOrder} onReturn={checkReturn} addressRaw={addressRaw} addressPin={addressPin} onAddressRawChange={setAddressRaw} onAddressPinChange={setAddressPin} buyerName={auth?.user?.name} />
+      <AccountDataDrawer type={drawer} open={["orders", "wishlist", "returns"].includes(drawer)} orders={orders} wishlist={wishlist} returns={returns} onClose={() => setDrawer(null)} onOpenProduct={(productId) => router.push(`/products/${productId}`)} onRemoveWishlist={(productId) => toggleWishlist({ id: productId })} onStartReturn={startReturn} />
       <AuthModal open={authModalOpen} onClose={() => { setAuthModalOpen(false); setPendingAfterAuth(null); }} onAuthenticated={handleAuthenticated} />
       {toast && <div className="toast" role="status" aria-live="polite"><Check size={16} /> {toast}</div>}
     </div>

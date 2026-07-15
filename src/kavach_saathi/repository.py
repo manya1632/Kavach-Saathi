@@ -12,6 +12,7 @@ from kavach_saathi.db.models import (
     OrderItem,
     Product,
     ProductImage,
+    ProductSpecification,
     ReturnRecord,
     Review,
     SellerProfile,
@@ -81,6 +82,25 @@ def _product_dict(product: Product) -> dict[str, Any]:
         "return_window_days": product.return_window_days,
         "media": {"primary": product.media_primary, "care_label": product.media_care_label},
     }
+
+
+def _normalized_spec(row: ProductSpecification) -> dict[str, Any]:
+    aliases = {
+        "garment_length": "length", "product_length": "length", "length_cm": "length",
+        "chest_cm": "chest", "bust": "chest", "waist_cm": "waist",
+        "fabric_composition": "fabric", "material_composition": "fabric",
+    }
+    normalized_key = aliases.get(row.key, row.key.removesuffix("_cm"))
+    value, unit = row.value_json, row.unit
+    if isinstance(value, (int, float)) and unit:
+        unit_key = unit.casefold()
+        if unit_key == "mm": value, unit = value / 10, "cm"
+        elif unit_key in {"m", "meter", "metre"}: value, unit = value * 100, "cm"
+        elif unit_key in {"in", "inch", "inches"}: value, unit = round(value * 2.54, 2), "cm"
+    return {"key": row.key, "normalized_key": normalized_key, "label": row.label,
+            "value": row.value_json, "normalized_value": value, "value_type": row.value_type,
+            "unit": row.unit, "normalized_unit": unit, "comparison_group": row.comparison_group,
+            "comparable": row.comparable, "source": row.source, "verified": row.verified}
 
 
 def _order_dict(order: Order, item: OrderItem | None) -> dict[str, Any]:
@@ -249,6 +269,70 @@ class CommerceRepository:
             reviews = session.execute(select(Review).where(Review.product_id == product_id)).scalars()
             return [_review_dict(r) for r in reviews]
 
+    def product_specifications(self, product_id: str) -> list[dict[str, Any]]:
+        with self._session() as session:
+            rows = session.execute(
+                select(ProductSpecification).where(ProductSpecification.product_id == product_id)
+                .order_by(ProductSpecification.comparison_group, ProductSpecification.label)
+            ).scalars()
+            return [_normalized_spec(row) for row in rows]
+
+    def product_images(self, product_id: str) -> list[dict[str, Any]]:
+        with self._session() as session:
+            product = session.get(Product, product_id)
+            rows = session.execute(
+                select(ProductImage).where(
+                    ProductImage.product_id == product_id,
+                    ProductImage.angle.in_(("front", "back", "left", "right")),
+                ).order_by(ProductImage.is_verified.desc(), ProductImage.created_at.desc())
+            ).scalars()
+            by_angle: dict[str, dict[str, Any]] = {}
+            for row in rows:
+                # Until Agent 1 has produced a verified angle, persistently use the
+                # seller's real primary upload for each labelled slot.
+                url = row.url if row.is_verified else (product.media_primary if product else row.url)
+                by_angle.setdefault(row.angle, {"angle": row.angle, "url": url, "verified": row.is_verified})
+            return [by_angle[angle] for angle in ("front", "back", "left", "right") if angle in by_angle]
+
+    def comparison_products(self, question: str, primary_id: str, explicit_ids: list[str]) -> list[dict[str, Any]]:
+        query = question.casefold()
+        with self._session() as session:
+            active = session.execute(select(Product).where(Product.status == "active").order_by(Product.id)).scalars().all()
+            primary = session.get(Product, primary_id)
+            selected: list[Product] = [primary] if primary else []
+            by_id = {product.id: product for product in active}
+            for product_id in explicit_ids:
+                product = by_id.get(product_id) or session.get(Product, product_id)
+                if product and product not in selected:
+                    selected.append(product)
+            aliases = {
+                "kurta": "Kurti, Saree & Lehenga", "kurti": "Kurti, Saree & Lehenga",
+                "saree": "Kurti, Saree & Lehenga", "lehenga": "Kurti, Saree & Lehenga",
+                "men": "Men", "kids": "Kids & Toys", "beauty": "Beauty & Health",
+                "jewellery": "Jewellery & Accessories", "jewelry": "Jewellery & Accessories",
+                "bags": "Bags & Footwear", "footwear": "Bags & Footwear",
+                "home": "Home & Kitchen", "western": "Women Western",
+            }
+            category = next((value for key, value in aliases.items() if key in query), None)
+            wants_all = any(token in query for token in ("all ", "sab ", "saare ", "every "))
+            if category and wants_all:
+                selected = [product for product in active if product.category == category]
+            else:
+                for product in active:
+                    if (product.id.casefold() in query
+                        or product.title.casefold() in query
+                        or (product.brand and product.brand.casefold() in query)) and product not in selected:
+                        selected.append(product)
+            output = []
+            for product in selected:
+                item = _product_dict(product)
+                rows = session.execute(select(ProductSpecification).where(
+                    ProductSpecification.product_id == product.id
+                )).scalars()
+                item["specifications"] = [_normalized_spec(row) for row in rows]
+                output.append(item)
+            return output
+
     def return_for_order(self, order_id: str) -> dict[str, Any] | None:
         with self._session() as session:
             record = session.execute(
@@ -416,6 +500,23 @@ class CommerceRepository:
                 return
             if spec_json is not None:
                 product.spec_json = {**product.spec_json, **spec_json}
+                for key, value in spec_json.items():
+                    record = session.execute(select(ProductSpecification).where(
+                        ProductSpecification.product_id == product_id,
+                        ProductSpecification.key == key,
+                    )).scalars().first()
+                    if record is None:
+                        record = ProductSpecification(
+                            product_id=product_id, key=key, label=key.replace("_", " ").title(),
+                            value_json=value, value_type="number" if isinstance(value, (int, float)) else "text",
+                            unit="GSM" if key == "gsm" else ("cm" if key.endswith("_cm") else None),
+                            comparison_group="fabric" if key in {"fabric", "gsm"} else ("color" if "color" in key else "general"),
+                            comparable=True,
+                        )
+                        session.add(record)
+                    record.value_json = value
+                    record.source = spec_source or "agent_cross_check"
+                    record.verified = True
             if spec_source is not None:
                 product.spec_source = spec_source
             if status is not None:

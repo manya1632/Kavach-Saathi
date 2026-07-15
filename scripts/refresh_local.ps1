@@ -39,6 +39,11 @@ Invoke-Checked { docker cp (Join-Path $projectRoot "migrations\.") "${backendId}
 Invoke-Checked { docker cp (Join-Path $projectRoot "scripts\.") "${backendId}:/app/scripts" } "Could not copy backend scripts."
 Invoke-Checked { docker cp (Join-Path $projectRoot "alembic.ini") "${backendId}:/app/alembic.ini" } "Could not copy Alembic configuration."
 
+Write-Host "Applying database migrations..." -ForegroundColor Cyan
+Invoke-Checked {
+    docker exec $backendId alembic upgrade head
+} "Database migration failed. If the migration needs a new Python dependency, rebuild the backend image once."
+
 Write-Host "Copying frontend source into the existing container..." -ForegroundColor Cyan
 Invoke-Checked { docker cp (Join-Path $projectRoot "web\app\.") "${frontendId}:/app/app" } "Could not copy frontend app files."
 Invoke-Checked { docker cp (Join-Path $projectRoot "web\components\.") "${frontendId}:/app/components" } "Could not copy frontend components."

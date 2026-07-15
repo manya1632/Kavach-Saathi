@@ -19,7 +19,7 @@ from kavach_saathi.providers.reasoning import ReasoningUnavailable
 from kavach_saathi.providers.spec_ocr import EXTRACTION_PROMPT, EXTRACTION_SYSTEM_PROMPT, ExtractedSpec
 from kavach_saathi.providers.spec_vision import FabricVisionClassifier, hex_color_distance
 
-REQUIRED_FIELDS = ("fabric", "gsm", "color_hex", "wash_care")
+IMAGE_VERIFIABLE_FIELDS = ("fabric", "gsm", "color_hex", "wash_care")
 _COLOR_MISMATCH_THRESHOLD = 0.35
 
 
@@ -110,7 +110,11 @@ class SpecEnforcerAgent(Agent):
                 final[field] = candidate
                 sources[field] = ocr_source_label if getattr(extracted, field, None) else "seller_form"
 
-        missing_fields = [field for field in REQUIRED_FIELDS if field not in final]
+        # Listings have category-specific, flexible specifications. Agent 2 only asks
+        # for a missing value when the seller actually declared that image/label-
+        # verifiable field; it never forces garment fields onto unrelated products.
+        applicable_fields = [field for field in IMAGE_VERIFIABLE_FIELDS if field in request.seller_specs]
+        missing_fields = [field for field in applicable_fields if field not in final]
 
         if mismatches:
             status = RunStatus.NEEDS_EVIDENCE

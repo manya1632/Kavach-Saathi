@@ -163,7 +163,10 @@ class AgentGraphs:
     @staticmethod
     def _voice_intent(state: WorkflowState) -> dict[str, Any]:
         query = str(state["request"].get("text", "")).lower()
-        is_size = any(word in query for word in ("size", "fit", "kaunsa", "konsa"))
+        is_comparison = bool(state["request"].get("compare_product_ids")) or any(
+            word in query for word in ("compare", "comparison", "versus", " vs ", "bada", "chhota", "better", "sab ", "all ")
+        )
+        is_size = not is_comparison and any(word in query for word in ("size", "fit", "kaunsa", "konsa"))
         return {
             "intent": "size" if is_size else "general",
             "events": [

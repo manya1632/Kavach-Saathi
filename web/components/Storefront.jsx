@@ -18,6 +18,7 @@ import {
   PackageCheck,
   RotateCcw,
   Search,
+  ShieldAlert,
   ShieldCheck,
   ShoppingBag,
   ShoppingCart,
@@ -150,8 +151,12 @@ function TrustDock({ trust, busy, onClose, onRunAll }) {
   );
 }
 
-function ProductDrawer({ product, open, busy, onClose, onAdd, onSize, onReview, onAsk, onAskVoice, voiceAudioUrl, agentAnswer, onSubmitReview }) {
+function ProductDrawer({ product, open, busy, onClose, onAdd, onSize, onReview, onAsk, onAskVoice, voiceAudioUrl, agentAnswer, sizeSaathi, onSubmitReview }) {
   const [size, setSize] = useState("M");
+
+  useEffect(() => {
+    if (sizeSaathi?.size) setSize(sizeSaathi.size);
+  }, [sizeSaathi?.size]);
   const [question, setQuestion] = useState("Iska fabric aur return policy batao");
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewText, setReviewText] = useState("");
@@ -217,7 +222,7 @@ function ProductDrawer({ product, open, busy, onClose, onAdd, onSize, onReview, 
           {!!product.badges?.length && <div className="product-badges">{product.badges.map((badge) => <span key={badge}><Check size={11} /> {badge}</span>)}</div>}
           <div className="trust-banner"><ShieldCheck size={19} /><div><strong>Verified product evidence</strong><p>Agent 1 checked imagery. Agent 2 matched seller claims to label-backed specs.</p></div></div>
 
-          {!!sizes.length && <div className="size-section"><div className="section-label"><strong>Select size</strong><button type="button" onClick={onSize} disabled={busy}><Sparkles size={13} /> Ask Size Saathi</button></div><div className="size-row">{sizes.map((item) => <button className={size === item ? "selected" : ""} type="button" key={item} onClick={() => setSize(item)}>{item}</button>)}</div></div>}
+          {!!sizes.length && <div className="size-section"><div className="section-label"><strong>Select size</strong><button type="button" onClick={onSize} disabled={busy}>{busy ? <LoaderCircle className="spin" size={13} /> : <Sparkles size={13} />} Ask Size Saathi</button></div><div className="size-row">{sizes.map((item) => <button className={size === item ? "selected" : ""} type="button" key={item} onClick={() => setSize(item)}>{item}</button>)}</div>{sizeSaathi && <div className="agent-answer size-saathi-answer">{sizeSaathi.size ? <strong>Recommended: {sizeSaathi.size}</strong> : null}{sizeSaathi.message && <span>{sizeSaathi.message}</span>}{sizeSaathi.audioUrl && <audio controls src={sizeSaathi.audioUrl} style={{ width: "100%", marginTop: 8 }} />}</div>}</div>}
 
           <dl className="spec-list">
             <div><dt>Material</dt><dd>{product.material || product.specs.fabric}</dd></div>
@@ -264,7 +269,104 @@ function ProductDrawer({ product, open, busy, onClose, onAdd, onSize, onReview, 
             <div><input value={reviewText} onChange={(event) => setReviewText(event.target.value)} placeholder="Kaisa laga yeh product?" /><button type="submit" disabled={reviewSubmitting}>{reviewSubmitting ? <LoaderCircle className="spin" size={15} /> : "Post"}</button></div>
             <small>Agent 4 (CLIP + BERT) automatically checks new reviews for relevance in the background.</small>
           </form>
+
+          {!!product.reviews?.length && (
+            <div className="review-list">
+              <div className="review-list-header">
+                <label><Star size={15} /> Customer reviews ({product.reviews.length})</label>
+                {!!product.review_report?.photos_submitted && (
+                  <p className="review-report">
+                    <ShieldCheck size={13} /> {product.review_report.photos_verified} of{" "}
+                    {product.review_report.photos_submitted} review photos verified genuine
+                    {product.review_report.photos_flagged > 0 && (
+                      <> · {product.review_report.photos_flagged} flagged and hidden</>
+                    )}{" "}
+                    (Agent 4 · CLIP + BERT)
+                  </p>
+                )}
+              </div>
+              <div className="review-cards">
+                {product.reviews.map((review) => (
+                  <article className="review-card" key={review.id}>
+                    <div className="review-card-head">
+                      <strong>{review.reviewer_name}</strong>
+                      <span className="review-stars">
+                        {Array.from({ length: 5 }, (_, index) => (
+                          <Star key={index} size={12} fill={index < review.rating ? "currentColor" : "none"} />
+                        ))}
+                      </span>
+                      {review.created_at && (
+                        <time dateTime={review.created_at}>
+                          {new Date(review.created_at).toLocaleDateString("en-IN", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </time>
+                      )}
+                    </div>
+                    {review.text && <p>{review.text}</p>}
+                    {review.media && !review.is_hidden_by_agent && (
+                      <img src={assetUrl(review.media)} alt="Review photo submitted by customer" />
+                    )}
+                    {review.media && review.is_hidden_by_agent && (
+                      <span className="review-flagged">
+                        <ShieldAlert size={12} /> Photo hidden by Agent 4 — didn't match this product
+                      </span>
+                    )}
+                  </article>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
+      </aside>
+    </div>
+  );
+}
+
+function ReviewSummaryDialog({ data, onClose }) {
+  if (!data) return null;
+  const breakdown = data.rating_breakdown || {};
+  const total = data.total_reviews || 0;
+  const rounded = Math.round(data.average_rating || 0);
+  return (
+    <div className="drawer-layer open">
+      <button className="drawer-scrim" type="button" onClick={onClose} aria-label="Close review summary" />
+      <aside className="review-summary-dialog" role="dialog" aria-modal="true" aria-label="Review truth summary">
+        <div className="side-heading">
+          <div><p>AGENT 4 · REVIEW TRUTH</p><h2>Review summary</h2></div>
+          <button type="button" onClick={onClose} aria-label="Close"><X size={20} /></button>
+        </div>
+        <div className="review-summary-rating">
+          <strong>{(data.average_rating || 0).toFixed(1)}</strong>
+          <span className="review-stars">
+            {Array.from({ length: 5 }, (_, index) => (
+              <Star key={index} size={17} fill={index < rounded ? "currentColor" : "none"} />
+            ))}
+          </span>
+          <small>{total} review{total === 1 ? "" : "s"}</small>
+        </div>
+        <div className="rating-breakdown">
+          {[5, 4, 3, 2, 1].map((star) => {
+            const count = breakdown[star] || 0;
+            const pct = total ? Math.round((count / total) * 100) : 0;
+            return (
+              <div className="rating-bar-row" key={star}>
+                <span>{star}★</span>
+                <div className="rating-bar"><div className="rating-bar-fill" style={{ width: `${pct}%` }} /></div>
+                <small>{count}</small>
+              </div>
+            );
+          })}
+        </div>
+        {!!data.photos_submitted && (
+          <p className="review-report">
+            <ShieldCheck size={13} /> {data.photos_verified} of {data.photos_submitted} review photos verified genuine
+            {data.photos_flagged > 0 && <> · {data.photos_flagged} flagged and hidden</>} (CLIP + BERT)
+          </p>
+        )}
+        <p className="review-summary-text">{data.summary}</p>
       </aside>
     </div>
   );
@@ -423,6 +525,8 @@ export default function Storefront() {
   const [lastOrderId, setLastOrderId] = useState(null);
   const [voiceAudioKey, setVoiceAudioKey] = useState(null);
   const [agentAnswer, setAgentAnswer] = useState("");
+  const [sizeSaathi, setSizeSaathi] = useState(null);
+  const [reviewSummary, setReviewSummary] = useState(null);
   const [trust, setTrust] = useState({ open: false, results: {}, message: "" });
   const [auth, setAuth] = useState(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
@@ -571,6 +675,7 @@ export default function Storefront() {
     setSelected(product);
     setVoiceAudioKey(null);
     setAgentAnswer("");
+    setSizeSaathi(null);
     try {
       const detail = await request(`/storefront/products/${product.id}`);
       setSelected(detail);
@@ -611,20 +716,28 @@ export default function Storefront() {
   async function recommendSize() {
     if (!selected) return;
     requireAuth(async (buyerId) => {
-      const payload = await execute("Agent 3 is translating size history…", () => post("/size/recommend", { buyer_id: buyerId, product_id: selected.id }));
+      const language = auth?.user?.preferred_language || "hi";
+      setSizeSaathi(null);
+      // Routes through the voice workflow (Agent 3 size RAG, then Agent 5 hands the
+      // recommendation straight to Sarvam TTS) so the reply is spoken and transcribed
+      // in the buyer's chosen language instead of a plain English-only toast.
+      const payload = await execute("Agent 3 is translating size history, Agent 5 is preparing a spoken answer…", () => post("/voice/query", { buyer_id: buyerId, product_id: selected.id, text: "Mujhe kaunsa size lena chahiye?", language }));
       const recommendation = payload.results.size_translator?.data?.recommended_size;
+      const voiceResult = payload.results.voice_qa;
+      const message = voiceResult?.user_message?.[language] || voiceResult?.summary || "";
+      setSizeSaathi({ size: recommendation || null, message, audioKey: voiceResult?.data?.audio_key || null });
       if (recommendation) setToast(`Size Saathi recommends ${recommendation}`);
     });
   }
 
   async function checkReview() {
-    const review = selected?.reviews?.find((item) => !item.expected_relevant) || selected?.reviews?.[0];
-    const fallback = { id: "RV-BAD", product_id: "P-001", media: "assets/mock/reviews/RV-BAD.png" };
-    const target = review || fallback;
+    if (!selected) return;
     try {
-      const payload = await execute("Agent 4 is matching review media…", () => postAndPoll("/reviews/analyze", { review_id: target.id, product_id: target.product_id, image_key: target.media }));
+      const payload = await execute("Agent 4 is summarizing all reviews…", () =>
+        postAndPoll("/reviews/summary", { product_id: selected.id })
+      );
       const result = payload.results?.review_filter;
-      setToast(result?.summary || "Review analysis complete — see agent activity panel");
+      if (result?.data) setReviewSummary(result.data);
     } catch { /* execute() already shows a toast on error */ }
   }
 
@@ -808,10 +921,11 @@ export default function Storefront() {
 
       <button className="floating-saathi" type="button" onClick={() => setTrust((current) => ({ ...current, open: !current.open }))}><ShieldCheck size={20} /><span><strong>Kavach Saathi</strong><small>{busy ? "Agents working…" : `${Object.keys(trust.results).length}/8 checks visible`}</small></span></button>
       <TrustDock trust={trust} busy={busy} onClose={() => setTrust((current) => ({ ...current, open: false }))} onRunAll={runAll} />
-      <ProductDrawer product={selected} open={drawer === "product"} busy={busy} onClose={() => setDrawer(null)} onAdd={addToCart} onSize={recommendSize} onReview={checkReview} onAsk={askQuestion} onAskVoice={askVoice} voiceAudioUrl={audioUrl(voiceAudioKey)} agentAnswer={agentAnswer} onSubmitReview={submitReview} />
+      <ProductDrawer product={selected} open={drawer === "product"} busy={busy} onClose={() => setDrawer(null)} onAdd={addToCart} onSize={recommendSize} onReview={checkReview} onAsk={askQuestion} onAskVoice={askVoice} voiceAudioUrl={audioUrl(voiceAudioKey)} agentAnswer={agentAnswer} sizeSaathi={sizeSaathi ? { ...sizeSaathi, audioUrl: audioUrl(sizeSaathi.audioKey) } : null} onSubmitReview={submitReview} />
       <CartDrawer items={cart} open={drawer === "cart"} onClose={() => setDrawer(null)} onRemove={removeFromCart} onCheckout={() => requireAuth(() => { setDrawer("checkout"); setCheckoutStep("address"); setVerifiedAddress(false); setVerifiedAddressId(null); })} />
       <CheckoutDrawer open={drawer === "checkout"} context={context} busy={busy} step={checkoutStep} verifiedAddress={verifiedAddress} orderId={lastOrderId} onClose={() => setDrawer(null)} onVerify={verifyAddress} onConfirm={confirmOrder} onReturn={checkReturn} addressRaw={addressRaw} addressPin={addressPin} onAddressRawChange={setAddressRaw} onAddressPinChange={setAddressPin} buyerName={auth?.user?.name} />
       <AuthModal open={authModalOpen} onClose={() => { setAuthModalOpen(false); setPendingAfterAuth(null); }} onAuthenticated={handleAuthenticated} />
+      <ReviewSummaryDialog data={reviewSummary} onClose={() => setReviewSummary(null)} />
       {toast && <div className="toast" role="status"><Check size={16} /> {toast}</div>}
     </div>
   );

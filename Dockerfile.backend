@@ -12,6 +12,13 @@ COPY pyproject.toml README.md ./
 # is copied in. Without this, `COPY src` invalidates the dependency-install layer on
 # every source change, forcing a full multi-GB reinstall for a one-line agent fix.
 RUN mkdir -p src/kavach_saathi && touch src/kavach_saathi/__init__.py
+# Plain `pip install torch` on Linux resolves a CUDA-enabled build by default -- this
+# container has no GPU, and a CUDA build without a real GPU driver behind it triggers
+# "Tensor.item() cannot be called on meta tensors" the first time any agent (e.g.
+# Agent 4's CLIP+BERT review check) actually loads a model. Installing the CPU-only
+# wheel explicitly, from PyTorch's own CPU index, before the general dependency
+# install avoids that entirely (versions matched to what's verified working locally).
+RUN pip install --no-cache-dir torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir .
 
 COPY src ./src

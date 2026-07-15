@@ -16,10 +16,16 @@ RUN pip install --no-cache-dir .
 
 COPY src ./src
 COPY data ./data
-COPY assets ./assets
 COPY alembic.ini ./alembic.ini
 COPY migrations ./migrations
-COPY scripts ./scripts
+# assets/ is NOT copied here: docker-compose.yml bind-mounts ./assets:/app/assets at
+# runtime for this service, which shadows anything baked in here anyway. Copying it
+# was pure wasted work -- ~450MB of small files re-transferred through the Windows/
+# WSL2 build-context pipe on every single build regardless of caching, since this
+# layer's content (assets change often -- generated media, uploads) invalidates on
+# nearly every rebuild. (The separate top-level ./Dockerfile, used for the AWS Lambda
+# deployment in template.yaml, has no such bind mount and must keep its own `COPY
+# assets ./assets` -- do not remove that one.)
 
 RUN pip install --no-cache-dir --no-deps .
 

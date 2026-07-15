@@ -11,6 +11,7 @@ from kavach_saathi.agents import (
     DeliveryConfirmationAgent,
     ReturnVerifierAgent,
     ReviewFilterAgent,
+    ReviewSummaryAgent,
     SizeTranslatorAgent,
     SpecEnforcerAgent,
     VoiceQAAgent,
@@ -23,6 +24,7 @@ from kavach_saathi.models import (
     ListingAnalyzeRequest,
     ReturnAnalyzeRequest,
     ReviewAnalyzeRequest,
+    ReviewSummaryRequest,
     SizeRecommendRequest,
     VoiceQueryRequest,
 )
@@ -52,6 +54,7 @@ class AgentGraphs:
         specs: SpecEnforcerAgent,
         size: SizeTranslatorAgent,
         review: ReviewFilterAgent,
+        review_summary: ReviewSummaryAgent,
         voice: VoiceQAAgent,
         address: AddressGuardianAgent,
         confirmation: DeliveryConfirmationAgent,
@@ -61,6 +64,7 @@ class AgentGraphs:
         self.specs = specs
         self.size = size
         self.review = review
+        self.review_summary = review_summary
         self.voice = voice
         self.address = address
         self.confirmation = confirmation
@@ -69,6 +73,7 @@ class AgentGraphs:
         self.listing = self._listing_graph()
         self.size_workflow = self._single_graph("size", self._size_node)
         self.review_workflow = self._single_graph("review", self._review_node)
+        self.review_summary_workflow = self._single_graph("review_summary", self._review_summary_node)
         self.voice_workflow = self._voice_graph()
         self.address_workflow = self._single_graph("address", self._address_node)
         self.confirmation_workflow = self._confirmation_graph()
@@ -103,6 +108,13 @@ class AgentGraphs:
 
     async def _review_node(self, state: WorkflowState) -> dict[str, Any]:
         result = await self.review.run(ReviewAnalyzeRequest.model_validate(state["request"]))
+        return {
+            "results": {result.agent.value: result},
+            "events": [event(result.agent, result.summary)],
+        }
+
+    async def _review_summary_node(self, state: WorkflowState) -> dict[str, Any]:
+        result = await self.review_summary.run(ReviewSummaryRequest.model_validate(state["request"]))
         return {
             "results": {result.agent.value: result},
             "events": [event(result.agent, result.summary)],

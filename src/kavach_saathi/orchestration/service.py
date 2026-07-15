@@ -28,6 +28,7 @@ class OrchestrationService:
             WorkflowType.LISTING: self.graphs.listing,
             WorkflowType.SIZE: self.graphs.size_workflow,
             WorkflowType.REVIEW: self.graphs.review_workflow,
+            WorkflowType.REVIEW_SUMMARY: self.graphs.review_summary_workflow,
             WorkflowType.VOICE: self.graphs.voice_workflow,
             WorkflowType.ADDRESS: self.graphs.address_workflow,
             WorkflowType.CONFIRMATION: self.graphs.confirmation_workflow,

@@ -16,6 +16,7 @@ class WorkflowType(StrEnum):
     LISTING = "listing"
     SIZE = "size"
     REVIEW = "review"
+    REVIEW_SUMMARY = "review_summary"
     VOICE = "voice"
     ADDRESS = "address"
     CONFIRMATION = "confirmation"
@@ -205,6 +206,11 @@ class ReviewAnalyzeRequest(BaseModel):
     review_id: str
     product_id: str
     image_key: str | None = None
+    idempotency_key: str | None = None
+
+
+class ReviewSummaryRequest(BaseModel):
+    product_id: str
     idempotency_key: str | None = None
 
 

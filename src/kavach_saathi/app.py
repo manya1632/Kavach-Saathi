@@ -43,6 +43,7 @@ from kavach_saathi.models import (
     RefreshRequest,
     ReturnAnalyzeRequest,
     ReviewAnalyzeRequest,
+    ReviewSummaryRequest,
     RunEnvelope,
     RunStatus,
     SignupRequest,
@@ -318,7 +319,8 @@ def create_app() -> FastAPI:
     async def storefront_product_detail(product_id: str, container: Container = Depends(get_container)):
         product = container.repository.get("products", product_id)
         result = storefront_product(product, container)
-        result["reviews"] = container.repository.product_reviews(product_id)[:8]
+        result["reviews"] = container.repository.product_reviews(product_id)
+        result["review_report"] = container.repository.review_report(product_id)
         return result
 
     @app.get(f"{prefix}/storefront/demo-context")
@@ -342,7 +344,12 @@ def create_app() -> FastAPI:
         order_id: str | None = None,
     ) -> RunEnvelope:
         data = payload.model_dump(mode="json")
-        async_workflows = {WorkflowType.LISTING, WorkflowType.REVIEW, WorkflowType.RETURN}
+        async_workflows = {
+            WorkflowType.LISTING,
+            WorkflowType.REVIEW,
+            WorkflowType.REVIEW_SUMMARY,
+            WorkflowType.RETURN,
+        }
         if workflow in async_workflows:
             record = container.service.start(
                 workflow,
@@ -394,6 +401,10 @@ def create_app() -> FastAPI:
     @app.post(f"{prefix}/reviews/analyze", response_model=RunEnvelope)
     async def analyze_review(payload: ReviewAnalyzeRequest, container: Container = Depends(get_container)):
         return await run(WorkflowType.REVIEW, payload, container)
+
+    @app.post(f"{prefix}/reviews/summary", response_model=RunEnvelope)
+    async def summarize_reviews(payload: ReviewSummaryRequest, container: Container = Depends(get_container)):
+        return await run(WorkflowType.REVIEW_SUMMARY, payload, container)
 
     @app.post(f"{prefix}/voice/query", response_model=RunEnvelope)
     async def voice_query(payload: VoiceQueryRequest, container: Container = Depends(get_container)):

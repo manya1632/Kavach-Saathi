@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 from sqlalchemy import select, update
@@ -99,6 +100,29 @@ def _order_dict(order: Order, item: OrderItem | None) -> dict[str, Any]:
     }
 
 
+_REVIEWER_FIRST_NAMES = [
+    "Rohit", "Priya", "Aman", "Sneha", "Vikram", "Anjali", "Rahul", "Divya", "Karan", "Pooja",
+    "Nikhil", "Shreya", "Arjun", "Neha", "Suresh", "Kavita", "Manish", "Ritu", "Deepak", "Swati",
+    "Ajay", "Preeti", "Sanjay", "Meena", "Vivek", "Anita", "Rakesh", "Sunita", "Gaurav", "Nisha",
+    "Harish", "Komal", "Sandeep", "Priyanka", "Ashok", "Rekha", "Naveen", "Simran", "Yogesh", "Alka",
+]
+_REVIEWER_LAST_INITIALS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
+def _reviewer_display_name(review_id: str) -> str:
+    """Deterministic per-review display name (e.g. "Rohit K.") derived from the
+    review's own id -- avoids a schema migration and avoids showing a raw buyer_id
+    (e.g. "B-003") as the reviewer, which would look nothing like a real storefront
+    and would also make the same 10 seeded buyer accounts visibly repeat across
+    thousands of reviews. Uses sha1, not the builtin hash(), since str hashing is
+    randomized per-process in Python -- hash() here would reshuffle every name on
+    every backend restart."""
+    digest = int(hashlib.sha1(review_id.encode()).hexdigest(), 16)
+    first = _REVIEWER_FIRST_NAMES[digest % len(_REVIEWER_FIRST_NAMES)]
+    last = _REVIEWER_LAST_INITIALS[(digest // len(_REVIEWER_FIRST_NAMES)) % len(_REVIEWER_LAST_INITIALS)]
+    return f"{first} {last}."
+
+
 def _review_dict(review: Review) -> dict[str, Any]:
     return {
         "id": review.id,
@@ -109,6 +133,8 @@ def _review_dict(review: Review) -> dict[str, Any]:
         "media": review.media,
         "is_hidden_by_agent": review.is_hidden_by_agent,
         "hide_reason": review.hide_reason,
+        "created_at": review.created_at.isoformat() if review.created_at else None,
+        "reviewer_name": _reviewer_display_name(review.id),
     }
 
 
@@ -246,8 +272,33 @@ class CommerceRepository:
 
     def product_reviews(self, product_id: str) -> list[dict[str, Any]]:
         with self._session() as session:
-            reviews = session.execute(select(Review).where(Review.product_id == product_id)).scalars()
+            reviews = session.execute(
+                select(Review).where(Review.product_id == product_id).order_by(Review.created_at.desc())
+            ).scalars()
             return [_review_dict(r) for r in reviews]
+
+    def review_report(self, product_id: str) -> dict[str, Any]:
+        """Aggregate counts backing the storefront's review-truth report -- computed
+        live from Review.is_hidden_by_agent rather than a separately stored summary,
+        since that column already holds Agent 4's real per-review CLIP+BERT verdict
+        (see scripts/classify_seeded_reviews.py) and a per-product review count in the
+        low tens is cheap enough to aggregate on every request."""
+        with self._session() as session:
+            from sqlalchemy import func
+
+            total, with_media, flagged = session.execute(
+                select(
+                    func.count(Review.id),
+                    func.count(Review.id).filter(Review.media.is_not(None)),
+                    func.count(Review.id).filter(Review.is_hidden_by_agent.is_(True)),
+                ).where(Review.product_id == product_id)
+            ).one()
+            return {
+                "total_reviews": total,
+                "photos_submitted": with_media,
+                "photos_verified": with_media - flagged,
+                "photos_flagged": flagged,
+            }
 
     def return_for_order(self, order_id: str) -> dict[str, Any] | None:
         with self._session() as session:

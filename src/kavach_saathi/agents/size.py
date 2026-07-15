@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 
 from pydantic import BaseModel, Field
@@ -87,7 +88,7 @@ class SizeTranslatorAgent(Agent):
                     },
                 }
             )
-        self.index.upsert(records, namespace="buyer_history")
+        await asyncio.to_thread(self.index.upsert, records, namespace="buyer_history")
 
     async def _index_brand_charts(self, product: dict, peers: list[dict]) -> None:
         records = []
@@ -110,26 +111,35 @@ class SizeTranslatorAgent(Agent):
                     },
                 }
             )
-        self.index.upsert(records, namespace="brand_charts")
+        await asyncio.to_thread(self.index.upsert, records, namespace="brand_charts")
 
     async def _rag_recommend(
         self, buyer: dict, product: dict, chart: dict, body: dict, history: list[dict]
     ) -> tuple[SizeRecommendation, dict]:
         peers = self.context.repository.products_in_category(product["category"], exclude_id=product["id"])
-        await self._index_buyer_history(buyer["id"], history)
-        await self._index_brand_charts(product, peers)
-
-        buyer_matches = self.index.query(
-            f"buyer sizing history for {product['category']} {product.get('brand', '')}",
-            namespace="buyer_history",
-            top_k=5,
-            filter={"buyer_id": buyer["id"]},
+        # Indexing history/charts and then querying both namespaces are independent
+        # network + local-embedding round trips -- running each pair concurrently
+        # instead of sequentially roughly halves this agent's wall-clock latency.
+        await asyncio.gather(
+            self._index_buyer_history(buyer["id"], history),
+            self._index_brand_charts(product, peers),
         )
-        chart_matches = self.index.query(
-            f"{product.get('brand', '')} size chart for {product['category']}",
-            namespace="brand_charts",
-            top_k=5,
-            filter={"category": product["category"]},
+
+        buyer_matches, chart_matches = await asyncio.gather(
+            asyncio.to_thread(
+                self.index.query,
+                f"buyer sizing history for {product['category']} {product.get('brand', '')}",
+                namespace="buyer_history",
+                top_k=5,
+                filter={"buyer_id": buyer["id"]},
+            ),
+            asyncio.to_thread(
+                self.index.query,
+                f"{product.get('brand', '')} size chart for {product['category']}",
+                namespace="brand_charts",
+                top_k=5,
+                filter={"category": product["category"]},
+            ),
         )
 
         prompt = (

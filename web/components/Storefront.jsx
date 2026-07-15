@@ -271,7 +271,7 @@ function CartDrawer({ items, open, onClose, onRemove, onCheckout }) {
   );
 }
 
-function CheckoutDrawer({ open, context, busy, step, verifiedAddress, onClose, onVerify, onConfirm, onReturn }) {
+function CheckoutDrawer({ open, context, busy, step, verifiedAddress, orderId, onClose, onVerify, onConfirm, onReturn }) {
   const address = context?.address;
   return (
     <div className={`drawer-layer ${open ? "open" : ""}`} aria-hidden={!open}>
@@ -284,7 +284,7 @@ function CheckoutDrawer({ open, context, busy, step, verifiedAddress, onClose, o
           {!verifiedAddress ? <button className="agent-action" type="button" onClick={onVerify} disabled={busy}>{busy ? <LoaderCircle className="spin" size={17} /> : <MapPin size={17} />} Agent 6 · Verify address & DIGIPIN</button> : <div className="verified-address"><ShieldCheck size={22} /><div><strong>Location and PIN agree</strong><p>DIGIPIN generated. The delivery label now uses normalized location evidence.</p></div></div>}
           <div className="consent-box"><Truck size={19} /><div><strong>Agent 7 delivery confirmation</strong><p>Simulates buyer availability before the parcel is released for dispatch.</p></div></div>
           <button className="primary-cta wide" type="button" onClick={onConfirm} disabled={!verifiedAddress || busy}>{busy ? <LoaderCircle className="spin" size={17} /> : <PackageCheck size={17} />} Confirm availability & place order</button>
-        </div> : <div className="success-state"><span><PackageCheck size={40} /></span><h3>Order O-GOLDEN is protected</h3><p>Address verified, buyer availability confirmed, and dispatch released with a traceable evidence trail.</p><div><Check size={15} /> Agent 6 verified address<DockLine /><Check size={15} /> Agent 7 captured consent</div><button className="secondary-cta" type="button" onClick={onReturn}><RotateCcw size={16} /> Simulate fair return check</button></div>}
+        </div> : <div className="success-state"><span><PackageCheck size={40} /></span><h3>Order {orderId || "O-GOLDEN"} is protected</h3><p>Address verified, buyer availability confirmed, and dispatch released with a traceable evidence trail.</p><div><Check size={15} /> Agent 6 verified address<DockLine /><Check size={15} /> Agent 7 captured consent</div><button className="secondary-cta" type="button" onClick={onReturn}><RotateCcw size={16} /> Simulate fair return check</button></div>}
       </aside>
     </div>
   );
@@ -747,7 +747,7 @@ export default function Storefront() {
       <TrustDock trust={trust} busy={busy} onClose={() => setTrust((current) => ({ ...current, open: false }))} onRunAll={runAll} />
       <ProductDrawer product={selected} open={drawer === "product"} busy={busy} onClose={() => setDrawer(null)} onAdd={addToCart} onSize={recommendSize} onReview={checkReview} onAsk={askQuestion} onAskVoice={askVoice} voiceAudioUrl={audioUrl(voiceAudioKey)} onSubmitReview={submitReview} />
       <CartDrawer items={cart} open={drawer === "cart"} onClose={() => setDrawer(null)} onRemove={removeFromCart} onCheckout={() => requireAuth(() => { setDrawer("checkout"); setCheckoutStep("address"); setVerifiedAddress(false); setVerifiedAddressId(null); })} />
-      <CheckoutDrawer open={drawer === "checkout"} context={context} busy={busy} step={checkoutStep} verifiedAddress={verifiedAddress} onClose={() => setDrawer(null)} onVerify={verifyAddress} onConfirm={confirmOrder} onReturn={checkReturn} />
+      <CheckoutDrawer open={drawer === "checkout"} context={context} busy={busy} step={checkoutStep} verifiedAddress={verifiedAddress} orderId={lastOrderId} onClose={() => setDrawer(null)} onVerify={verifyAddress} onConfirm={confirmOrder} onReturn={checkReturn} />
       <AuthModal open={authModalOpen} onClose={() => { setAuthModalOpen(false); setPendingAfterAuth(null); }} onAuthenticated={handleAuthenticated} />
       {toast && <div className="toast" role="status"><Check size={16} /> {toast}</div>}
     </div>

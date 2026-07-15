@@ -12,7 +12,7 @@ from kavach_saathi.models import AgentAction, AgentName, AgentResult, Evidence, 
 from kavach_saathi.providers.reasoning import ReasoningUnavailable
 from kavach_saathi.providers.vector_index import PineconeIndex, PineconeUnavailable
 
-_LANGUAGE_NAMES = {"hi": "Hindi", "en": "English", "bn": "Bengali", "mr": "Marathi", "gu": "Gujarati"}
+_LANGUAGE_CODES = ("en", "hi", "bn", "mr", "gu")
 
 _SYSTEM_PROMPT = (
     "You are Kavach Saathi's cross-seller size translator. Given a buyer's body "
@@ -22,7 +22,9 @@ _SYSTEM_PROMPT = (
     "best size for the target product. You must only recommend a size label that "
     "actually appears in the target product's size chart. Ground your reasoning "
     "explicitly in the retrieved evidence -- never invent a measurement or a past "
-    "order that wasn't given to you."
+    "order that wasn't given to you. Write natural, idiomatic reasoning in each of "
+    "English, Hindi, Bengali, Marathi, and Gujarati -- not a literal word-for-word "
+    "translation of one into the others."
 )
 
 
@@ -30,6 +32,9 @@ class SizeRecommendation(BaseModel):
     recommended_size: str = Field(description="Must be one of the size labels present in the target size chart")
     reasoning_en: str = Field(description="One or two sentence explanation in English")
     reasoning_hi: str = Field(description="The same explanation in Hindi")
+    reasoning_bn: str = Field(description="The same explanation in Bengali")
+    reasoning_mr: str = Field(description="The same explanation in Marathi")
+    reasoning_gu: str = Field(description="The same explanation in Gujarati")
     confidence: int = Field(ge=0, le=100)
 
 
@@ -127,13 +132,13 @@ class SizeTranslatorAgent(Agent):
             filter={"category": product["category"]},
         )
 
-        language_name = _LANGUAGE_NAMES.get(buyer.get("language", "en"), "English")
         prompt = (
             f"Buyer measurements (cm): {body}\n"
             f"Target product: {product['name']} ({product.get('brand', 'unknown')}), size chart: {chart}\n"
             f"Retrieved buyer purchase history: {buyer_matches}\n"
             f"Retrieved comparable brand size charts: {chart_matches}\n"
-            f"Write the Hindi reasoning in natural {language_name} phrasing appropriate for an Indian shopper."
+            "Phrase every language's reasoning naturally for an Indian shopper, as a native "
+            "speaker of that language would write it."
         )
         recommendation = await self.context.reasoner.structured(
             system=_SYSTEM_PROMPT,
@@ -171,7 +176,7 @@ class SizeTranslatorAgent(Agent):
             recommended = recommendation.recommended_size
             confidence = recommendation.confidence
             summary = recommendation.reasoning_en
-            user_message = {"en": recommendation.reasoning_en, "hi": recommendation.reasoning_hi}
+            user_message = {code: getattr(recommendation, f"reasoning_{code}") for code in _LANGUAGE_CODES}
             source = provider
         else:
             recommended = _deterministic_recommendation(chart, body)
@@ -186,6 +191,9 @@ class SizeTranslatorAgent(Agent):
                 user_message = {
                     "en": summary,
                     "hi": f"Aapke measurements aur pichhli fitting ke hisaab se {recommended} size sabse safe hai.",
+                    "bn": f"আপনার মাপ এবং আগের ফিটিং অনুযায়ী {recommended} সাইজ সবচেয়ে নিরাপদ।",
+                    "mr": f"तुमच्या मापांनुसार आणि आधीच्या फिटिंगनुसार {recommended} साइज सर्वात सुरक्षित आहे.",
+                    "gu": f"તમારા માપ અને પાછલા ફિટિંગ મુજબ {recommended} સાઈઝ સૌથી સુરક્ષિત છે.",
                 }
             else:
                 confidence = 30
@@ -193,7 +201,13 @@ class SizeTranslatorAgent(Agent):
                     "No listed size provides the required ease; ask for measurements or "
                     f"choose another product (RAG fallback: {rag_error})."
                 )
-                user_message = {"en": summary, "hi": "Is product mein abhi safe size match nahi mila."}
+                user_message = {
+                    "en": summary,
+                    "hi": "Is product mein abhi safe size match nahi mila.",
+                    "bn": "এই প্রোডাক্টের জন্য এখনও কোনো নিরাপদ সাইজ মিলছে না।",
+                    "mr": "या उत्पादनासाठी अद्याप सुरक्षित साइज जुळत नाही.",
+                    "gu": "આ પ્રોડક્ટ માટે હજુ સુધી કોઈ સુરક્ષિત સાઈઝ મળી નથી.",
+                }
 
         actions = (
             [AgentAction(type="select_size", label=f"Select {recommended}", payload={"size": recommended})]

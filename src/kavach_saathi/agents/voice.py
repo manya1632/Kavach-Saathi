@@ -27,13 +27,20 @@ _SYSTEM_PROMPT = (
     "supplied commerce evidence -- verified product specs, real buyer reviews, and past "
     "resolved Q&A. Never invent discounts, delivery dates, fabric claims, or return "
     "approvals. If multiple products are supplied, compare them using only their "
-    "listed evidence."
+    "listed evidence. Write natural, idiomatic answers in each of English, Hindi, "
+    "Bengali, Marathi, and Gujarati -- not a literal word-for-word translation of one "
+    "into the others -- so a shopper reading any single language gets a fluent answer."
 )
+
+_LANGUAGE_CODES = ("en", "hi", "bn", "mr", "gu")
 
 
 class VoiceAnswer(BaseModel):
     answer_en: str
     answer_hi: str
+    answer_bn: str
+    answer_mr: str
+    answer_gu: str
     confidence: int = Field(ge=0, le=100)
 
 
@@ -129,8 +136,7 @@ class VoiceQAAgent(Agent):
                     "text": transcript,
                     "metadata": {
                         "product_id": product_ids[0],
-                        "answer_en": answer.answer_en,
-                        "answer_hi": answer.answer_hi,
+                        **{f"answer_{code}": getattr(answer, f"answer_{code}") for code in _LANGUAGE_CODES},
                     },
                 }
             ],
@@ -140,33 +146,46 @@ class VoiceQAAgent(Agent):
         retrieved = {"knowledge_and_reviews": knowledge_matches, "resolved_qa": resolved_qa_matches}
         return answer, retrieved
 
-    def _deterministic_answer(self, transcript: str, products: list[dict]) -> tuple[str, str]:
+    def _deterministic_answer(self, transcript: str, products: list[dict]) -> dict[str, str]:
         lower = transcript.lower()
         primary = products[0]
         specs = primary.get("specs", {})
         if len(products) > 1:
-            lines_en = [f"{p['name']}: Rs {p['price']}" for p in products]
-            lines_hi = [f"{p['name']}: ₹{p['price']}" for p in products]
-            return (
-                "Comparing verified listings: " + "; ".join(lines_en) + ".",
-                "वेरिफाइड लिस्टिंग की तुलना: " + "; ".join(lines_hi) + "।",
-            )
+            lines = {code: [f"{p['name']}: ₹{p['price']}" for p in products] for code in _LANGUAGE_CODES}
+            lines["en"] = [f"{p['name']}: Rs {p['price']}" for p in products]
+            joined = {code: "; ".join(items) for code, items in lines.items()}
+            return {
+                "en": "Comparing verified listings: " + joined["en"] + ".",
+                "hi": "वेरिफाइड लिस्टिंग की तुलना: " + joined["hi"] + "।",
+                "bn": "যাচাইকৃত তালিকার তুলনা: " + joined["bn"] + "।",
+                "mr": "पडताळणी केलेल्या यादीची तुलना: " + joined["mr"] + ".",
+                "gu": "ચકાસાયેલ યાદીની સરખામણી: " + joined["gu"] + ".",
+            }
         if any(word in lower for word in ("fabric", "kapda", "material")):
             fabric = specs.get("fabric", "not verified")
-            return (
-                f"The verified label lists the fabric as {fabric}.",
-                f"वेरिफाइड लेबल के अनुसार इसका कपड़ा {fabric} है।",
-            )
+            return {
+                "en": f"The verified label lists the fabric as {fabric}.",
+                "hi": f"वेरिफाइड लेबल के अनुसार इसका कपड़ा {fabric} है।",
+                "bn": f"যাচাইকৃত লেবেল অনুযায়ী এর কাপড় {fabric}।",
+                "mr": f"पडताळणी केलेल्या लेबलनुसार याचे कापड {fabric} आहे.",
+                "gu": f"ચકાસાયેલ લેબલ મુજબ આનું કાપડ {fabric} છે.",
+            }
         if any(word in lower for word in ("return", "wapas", "refund")):
             days = primary.get("return_window_days", 7)
-            return (
-                f"This product has a {days}-day return window. Return evidence is checked fairly.",
-                f"इस प्रोडक्ट पर {days} दिनों की रिटर्न विंडो है। रिटर्न एविडेंस निष्पक्ष तरीके से जाँचा जाता है।",
-            )
-        return (
-            f"{primary['name']} costs Rs {primary['price']} and its verified details are available.",
-            f"{primary['name']} की कीमत ₹{primary['price']} है; इसकी वेरिफाइड डिटेल्स उपलब्ध हैं।",
-        )
+            return {
+                "en": f"This product has a {days}-day return window. Return evidence is checked fairly.",
+                "hi": f"इस प्रोडक्ट पर {days} दिनों की रिटर्न विंडो है। रिटर्न एविडेंस निष्पक्ष तरीके से जाँचा जाता है।",
+                "bn": f"এই পণ্যের {days} দিনের রিটার্ন উইন্ডো আছে। রিটার্ন প্রমাণ ন্যায্যভাবে পরীক্ষা করা হয়।",
+                "mr": f"या उत्पादनासाठी {days} दिवसांची परतावा मुदत आहे. परतावा पुरावा निष्पक्षपणे तपासला जातो.",
+                "gu": f"આ પ્રોડક્ટ માટે {days} દિવસની રિટર્ન વિન્ડો છે. રિટર્ન પુરાવો ન્યાયી રીતે તપાસવામાં આવે છે.",
+            }
+        return {
+            "en": f"{primary['name']} costs Rs {primary['price']} and its verified details are available.",
+            "hi": f"{primary['name']} की कीमत ₹{primary['price']} है; इसकी वेरिफाइड डिटेल्स उपलब्ध हैं।",
+            "bn": f"{primary['name']}-এর দাম ₹{primary['price']}; এর যাচাইকৃত বিবরণ উপলব্ধ।",
+            "mr": f"{primary['name']} ची किंमत ₹{primary['price']} आहे; याचा पडताळणी केलेला तपशील उपलब्ध आहे.",
+            "gu": f"{primary['name']} ની કિંમત ₹{primary['price']} છે; તેની ચકાસાયેલ વિગતો ઉપલબ્ધ છે.",
+        }
 
     async def run(self, request: VoiceQueryRequest, size_result: AgentResult | None = None) -> AgentResult:
         settings = get_settings()
@@ -194,24 +213,26 @@ class VoiceQAAgent(Agent):
 
         rag_error: str | None = None
         if size_result:
-            answer_en = size_result.user_message["en"]
-            answer_hi = size_result.user_message["hi"]
+            # size_result may predate this fix and only carry en/hi -- fall back to
+            # English for the newer language codes rather than crash on a missing key.
+            answers = {code: size_result.user_message.get(code, size_result.user_message["en"]) for code in _LANGUAGE_CODES}
             confidence = size_result.confidence
             retrieved: dict = {}
             provider = "size_translator_handoff"
         else:
             try:
                 answer, retrieved = await self._rag_answer(transcript, products, buyer, sellers)
-                answer_en, answer_hi, confidence = answer.answer_en, answer.answer_hi, answer.confidence
+                answers = {code: getattr(answer, f"answer_{code}") for code in _LANGUAGE_CODES}
+                confidence = answer.confidence
                 provider = f"pinecone_rag+{self.context.reasoner.name}"
             except (PineconeUnavailable, ReasoningUnavailable) as exc:
                 rag_error = str(exc)
-                answer_en, answer_hi = self._deterministic_answer(transcript, products)
+                answers = self._deterministic_answer(transcript, products)
                 confidence = 94
                 retrieved = {}
                 provider = "deterministic_keyword_fallback"
 
-        answer_text = answer_hi if request.language == "hi" else answer_en
+        answer_text = answers.get(request.language, answers["en"])
         try:
             audio_bytes = await self.sarvam.synthesize(answer_text, request.language)
             audio_key = write_generated_image(
@@ -221,13 +242,18 @@ class VoiceQAAgent(Agent):
                 content_type="audio/wav",
             )
         except SarvamUnavailable:
-            lang_suffix = request.language if request.language in ("en", "hi") else "hi"
+            # Only en/hi have a pre-recorded placeholder clip on disk (see
+            # assets/mock/audio/) -- bn/mr/gu text answers are real (see `answers`
+            # above), but this static fallback audio can't honestly claim to be in
+            # those languages when Sarvam itself is the thing that's unavailable, so
+            # it falls back to English rather than mislabeling a Hindi clip as Bengali.
+            lang_suffix = request.language if request.language in ("en", "hi") else "en"
             audio_key = f"assets/mock/audio/demo-{lang_suffix}.wav"
 
         return AgentResult(
             agent=AgentName.VOICE_QA,
             confidence=confidence,
-            summary=answer_en,
+            summary=answers["en"],
             evidence=[
                 Evidence(key="transcript", value=transcript, source=transcript_source),
                 Evidence(key="product_ids", value=[p["id"] for p in products], source="catalogue"),
@@ -240,5 +266,5 @@ class VoiceQAAgent(Agent):
                 "language": request.language,
                 "rag_error": rag_error,
             },
-            user_message={"en": answer_en, "hi": answer_hi},
+            user_message=answers,
         )

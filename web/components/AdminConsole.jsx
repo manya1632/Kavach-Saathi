@@ -11,6 +11,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 import { get, loadAuthSession, login, logout, patchJson, post, saveAuthSession } from "@/lib/api";
 
@@ -39,7 +40,7 @@ function AdminAuth({ onAuthenticated }) {
   }
 
   return (
-    <div className="seller-auth-shell">
+    <div className="seller-auth-page"><header className="portal-public-header"><Link className="logo" href="/"><span>K</span><div><strong>Kavach</strong><small>SAATHI SHOP</small></div></Link><nav><Link href="/">Home</Link><Link href="/#products">Shop</Link><span>Admin Console</span></nav></header><main className="seller-auth-shell">
       <div className="seller-auth-card">
         <div className="seller-brand"><ShieldAlert size={22} /><div><strong>Kavach Saathi</strong><small>Admin Console</small></div></div>
         <form className="auth-form" onSubmit={handleSubmit}>
@@ -49,7 +50,7 @@ function AdminAuth({ onAuthenticated }) {
           <button className="primary-cta wide" type="submit" disabled={busy}>{busy ? <LoaderCircle className="spin" size={16} /> : null} Log in</button>
         </form>
       </div>
-    </div>
+    </main><footer className="portal-public-footer"><strong>Kavach Saathi</strong><span>Protected marketplace administration</span><Link href="/">Return to storefront</Link></footer></div>
   );
 }
 

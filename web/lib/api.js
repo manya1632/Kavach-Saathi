@@ -36,7 +36,15 @@ export async function request(path, options = {}) {
     window.dispatchEvent(new CustomEvent("kavach:session-expired"));
     throw new Error("Session expired — please log in again");
   }
-  const payload = await response.json();
+  const raw = await response.text();
+  let payload = {};
+  if (raw) {
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      payload = { detail: raw.startsWith("Internal Server Error") ? "The server could not complete this request" : raw };
+    }
+  }
   if (!response.ok) {
     throw new Error(payload.detail || payload.error || `Request failed (${response.status})`);
   }
@@ -92,6 +100,11 @@ export const removeCartItem = (itemId) => del(`/cart/${itemId}`);
 export const createOrder = (addressId, paymentMode) => post("/orders", { address_id: addressId, payment_mode: paymentMode });
 export const verifyPayment = (orderId, payload) => post(`/orders/${orderId}/verify-payment`, payload);
 export const listMyOrders = () => get("/orders");
+export const getWishlist = () => get("/wishlist");
+export const addWishlist = (productId) => post(`/wishlist/${productId}`, {});
+export const removeWishlist = (productId) => del(`/wishlist/${productId}`);
+export const listMyReturns = () => get("/returns");
+export const createReturnRequest = (orderId, reason) => post("/returns", { order_id: orderId, reason });
 export const createReview = (payload) => post("/reviews", payload);
 
 export function assetUrl(path) {

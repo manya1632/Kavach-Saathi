@@ -18,6 +18,7 @@ from kavach_saathi.db.models import (
     Payment,
     Product,
     ProductImage,
+    ProductSpecification,
     ProductVariant,
     RefreshToken,
     ReturnRecord,
@@ -25,6 +26,7 @@ from kavach_saathi.db.models import (
     SellerProfile,
     SellerTrustScoreRecord,
     User,
+    WishlistItem,
 )
 from kavach_saathi.digipin import encode
 from kavach_saathi.order_status import OrderStatus
@@ -651,12 +653,14 @@ def reset_database() -> None:
             EvalFixture,
             AgentLog,
             CartItem,
+            WishlistItem,
             OrderStatusHistory,
             Payment,
             OrderItem,
             ReturnRecord,
             Review,
             ProductImage,
+            ProductSpecification,
             ProductVariant,
             Order,
             Address,
@@ -797,6 +801,14 @@ def seed_database() -> dict[str, int]:
         session.flush()
 
         for product in products:
+            for key, value in product["specs"].items():
+                session.add(ProductSpecification(
+                    product_id=product["id"], key=key, label=key.replace("_", " ").title(),
+                    value_json=value, value_type="number" if isinstance(value, (int, float)) else "text",
+                    unit="GSM" if key == "gsm" else ("cm" if key.endswith("_cm") else None),
+                    comparison_group="fabric" if key in {"fabric", "gsm"} else ("color" if "color" in key else "general"),
+                    comparable=True, source="seller_form", verified=key in product["label_backed_fields"],
+                ))
             session.add(
                 EvalFixture(
                     entity_type="product",

@@ -491,3 +491,62 @@ img { max-width: 100%; }
 .order-actions { display: flex; gap: 8px; margin-top: 10px; }
 .order-actions button { display: flex; align-items: center; gap: 5px; padding: 7px 11px; border: 1px solid var(--line); border-radius: 7px; background: white; color: var(--plum); font-size: 9px; font-weight: 800; cursor: pointer; }
 .empty-note { color: var(--muted); font-size: 11px; text-align: center; padding: 30px 0; }
+
+/* Persistent catalogue details and account commerce */
+.four-view-gallery { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 18px !important; }
+.four-view-gallery figure { position: relative; min-width: 0; min-height: 0; margin: 0; overflow: hidden; border: 1px solid rgb(255 255 255 / 45%); border-radius: 12px; background: #f7eef2; }
+.four-view-gallery figure img { width: 100% !important; max-width: none !important; height: 100% !important; max-height: none !important; object-fit: cover !important; }
+.four-view-gallery figcaption { position: absolute; left: 8px; bottom: 8px; padding: 5px 8px; border-radius: 99px; color: white; background: rgb(51 18 35 / 78%); font-size: 8px; font-weight: 900; text-transform: capitalize; }
+.four-view-gallery > span { grid-column: 1 / -1; justify-self: center; }
+.product-specifications, .size-chart { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
+.product-specifications .section-label, .size-chart .section-label { align-items: flex-end; }
+.product-specifications .section-label small, .size-chart .section-label small { color: var(--muted); font-size: 8px; }
+.product-specifications dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; overflow: hidden; margin: 12px 0 0; border: 1px solid var(--line); border-radius: 10px; background: var(--line); }
+.product-specifications dl > div { display: flex; justify-content: space-between; gap: 10px; padding: 11px; background: white; }
+.product-specifications dt { color: var(--muted); font-size: 9px; text-transform: capitalize; }
+.product-specifications dd { margin: 0; font-size: 9px; font-weight: 800; text-align: right; }
+.product-specifications dd small { display: block; margin-top: 3px; color: var(--green); font-size: 7px; font-weight: 700; }
+.color-swatch { width: 12px; height: 12px; display: inline-block; margin-right: 5px; border: 1px solid #aaa; border-radius: 50%; vertical-align: -2px; }
+.size-chart-scroll { margin-top: 12px; overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+.size-chart table { width: 100%; border-collapse: collapse; font-size: 9px; white-space: nowrap; }
+.size-chart th, .size-chart td { padding: 10px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: center; text-transform: capitalize; }
+.size-chart thead th, .size-chart tbody th { color: var(--plum); background: var(--pink); font-weight: 900; }
+.account-menu { position: relative; }
+.account-menu > button { min-height: 42px; display: flex; align-items: center; gap: 7px; padding: 0 12px; border: 0; background: transparent; cursor: pointer; }
+.account-dropdown { position: absolute; z-index: 90; top: calc(100% + 10px); right: 0; width: 210px; padding: 8px; border: 1px solid var(--line); border-radius: 12px; background: white; box-shadow: var(--shadow); }
+.account-dropdown button { width: 100%; min-height: 40px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; border: 0; border-radius: 8px; color: var(--ink); background: white; font-size: 10px; font-weight: 800; cursor: pointer; }
+.account-dropdown button:hover { color: var(--plum); background: var(--pink); }
+.account-dropdown small { min-width: 20px; padding: 3px 6px; border-radius: 99px; background: var(--soft); text-align: center; }
+.account-data-list { flex: 1; overflow-y: auto; padding: 18px; }
+.account-record { margin-bottom: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; }
+.account-record > div { display: flex; justify-content: space-between; gap: 10px; }
+.account-record > div span { color: var(--green); font-size: 8px; font-weight: 900; text-transform: uppercase; }
+.account-record p { color: var(--muted); font-size: 9px; line-height: 1.5; }
+.account-record > button:not(.secondary-cta) { width: 100%; display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 8px; border: 0; border-radius: 9px; background: var(--soft); text-align: left; cursor: pointer; }
+.account-record img { width: 52px; height: 62px; object-fit: cover; border-radius: 7px; }
+.account-record button span { display: flex; flex-direction: column; gap: 5px; font-size: 9px; }
+.account-record button small { color: var(--muted); }
+.account-record .secondary-cta { width: 100%; margin-top: 10px; }
+.heart { border: 0; cursor: pointer; }
+.heart.active { color: #9d2457; background: #fff0f5; }
+.dynamic-specs { display: flex; flex-direction: column; gap: 9px; margin: 4px 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; }
+.dynamic-specs legend { padding: 0 6px; color: var(--plum); font-size: 10px; font-weight: 900; }
+.dynamic-specs > small { color: var(--muted); font-size: 8px; line-height: 1.5; }
+.dynamic-spec-row { display: grid; grid-template-columns: 1fr 1.2fr 1fr .9fr .6fr auto; gap: 6px; }
+.dynamic-size-row { display: grid; grid-template-columns: .7fr 2fr .7fr auto; gap: 6px; }
+.dynamic-spec-row input, .dynamic-spec-row select, .dynamic-size-row input { min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 7px; font-size: 9px; }
+.dynamic-spec-row button, .dynamic-size-row button { border: 0; color: #9a1c1c; background: transparent; font-size: 8px; cursor: pointer; }
+.seller-auth-page { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; background: var(--soft); }
+.portal-public-header, .portal-public-footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px max(24px, calc((100vw - 1180px) / 2)); border-bottom: 1px solid var(--line); background: white; }
+.portal-public-header nav, .portal-public-footer { font-size: 10px; }
+.portal-public-header nav { display: flex; align-items: center; gap: 18px; }
+.portal-public-header a, .portal-public-footer a { color: var(--plum); text-decoration: none; font-weight: 800; }
+.portal-public-header nav span { padding: 7px 10px; border-radius: 99px; color: var(--plum); background: var(--pink); font-weight: 900; }
+.portal-public-footer { border-top: 1px solid var(--line); border-bottom: 0; color: var(--muted); }
+
+@media (max-width: 760px) {
+  .dynamic-spec-row, .dynamic-size-row { grid-template-columns: 1fr; }
+  .product-specifications dl { grid-template-columns: 1fr; }
+  .portal-public-header nav a { display: none; }
+  .portal-public-footer { align-items: flex-start; flex-direction: column; }
+}

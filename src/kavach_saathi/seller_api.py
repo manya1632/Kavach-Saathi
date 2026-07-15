@@ -16,6 +16,8 @@ from kavach_saathi.db.models import (
     OrderItem,
     OrderStatusHistory,
     Product,
+    ProductImage,
+    ProductSpecification,
     ProductVariant,
     SellerProfile,
     SellerTrustScoreRecord,
@@ -107,6 +109,12 @@ async def list_seller_products(
         select(ProductVariant).where(ProductVariant.product_id.in_([p.id for p in products]))
     ).scalars():
         variants_by_product.setdefault(variant.product_id, []).append(variant)
+    specs_by_product: dict[str, list[ProductSpecification]] = {}
+    if products:
+        for spec in session.execute(select(ProductSpecification).where(
+            ProductSpecification.product_id.in_([p.id for p in products])
+        )).scalars():
+            specs_by_product.setdefault(spec.product_id, []).append(spec)
     return [
         {
             "id": product.id,
@@ -116,6 +124,8 @@ async def list_seller_products(
             "price": product.price,
             "spec_source": product.spec_source,
             "stolen_photo_flag": product.stolen_photo_flag,
+            "specifications": [{"key": s.key, "label": s.label, "value": s.value_json, "unit": s.unit} for s in specs_by_product.get(product.id, [])],
+            "size_chart": product.size_chart,
             "variants": [
                 {"id": v.id, "size": v.size, "stock_qty": v.stock_qty, "price": v.price}
                 for v in variants_by_product.get(product.id, [])
@@ -133,6 +143,9 @@ async def create_seller_product(
 ):
     _seller_profile(session, user)
     product_id = f"P-{uuid4().hex[:10].upper()}"
+    structured_specs = {item.key: item.value for item in payload.specifications}
+    size_chart = {row.size: row.dimensions_cm for row in payload.size_chart}
+    total_stock = sum(row.stock_qty for row in payload.size_chart) if payload.size_chart else payload.stock_qty
     product = Product(
         id=product_id,
         seller_id=user.id,
@@ -146,17 +159,45 @@ async def create_seller_product(
         price=payload.price,
         original_price=payload.original_price,
         status="draft",
-        spec_json=payload.seller_specs,
+        spec_json={**payload.seller_specs, **structured_specs},
         spec_source="seller_form",
+        size_chart=size_chart,
+        stock=total_stock,
         media_primary=payload.image_keys[0],
     )
     session.add(product)
+    session.flush()
+    for item in payload.specifications:
+        session.add(ProductSpecification(
+            product_id=product_id, key=item.key, label=item.label, value_json=item.value,
+            value_type=item.value_type, unit=item.unit, comparison_group=item.comparison_group,
+            comparable=item.comparable, source="seller_form", verified=False,
+        ))
+    for angle in ("front", "back", "left", "right"):
+        session.add(ProductImage(
+            id=f"{product_id}-{angle}", product_id=product_id, url=payload.image_keys[0],
+            type="seller_upload", angle=angle, is_verified=False,
+        ))
+    if payload.size_chart:
+        for row in payload.size_chart:
+            variant_id = f"{product_id}-{row.size}"
+            session.add(ProductVariant(
+                id=variant_id, product_id=product_id, size=row.size, sku=variant_id,
+                stock_qty=row.stock_qty, price=row.price or payload.price,
+            ))
+    else:
+        session.add(ProductVariant(
+            id=f"{product_id}-STD", product_id=product_id, size="Standard",
+            sku=f"{product_id}-STD", stock_qty=payload.stock_qty, price=payload.price,
+        ))
     session.flush()
     return {
         "id": product.id,
         "seller_id": product.seller_id,
         "status": product.status,
         "image_keys": payload.image_keys,
+        "specifications": len(payload.specifications),
+        "variants": len(payload.size_chart) or 1,
         "next_step": "POST /v1/listings/analyze with this product_id to run Agent 1 + Agent 2",
     }
 

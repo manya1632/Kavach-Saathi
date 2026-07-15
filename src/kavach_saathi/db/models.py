@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -129,6 +129,26 @@ class ProductImage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class ProductSpecification(Base):
+    """A flexible, typed and queryable specification attached to one product."""
+
+    __tablename__ = "product_specifications"
+    __table_args__ = (UniqueConstraint("product_id", "key", name="uq_product_specification_key"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    product_id: Mapped[str] = mapped_column(String(32), ForeignKey("products.id"), nullable=False)
+    key: Mapped[str] = mapped_column(String(80), nullable=False)
+    label: Mapped[str] = mapped_column(String(120), nullable=False)
+    value_json: Mapped[Any] = mapped_column(JSONB, nullable=False)
+    value_type: Mapped[str] = mapped_column(String(24), nullable=False, default="text")
+    unit: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    comparison_group: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    comparable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    source: Mapped[str] = mapped_column(String(24), nullable=False, default="seller_form")
+    verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class ProductVariant(Base):
     __tablename__ = "product_variants"
 
@@ -147,6 +167,16 @@ class CartItem(Base):
     user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id"), nullable=False)
     product_variant_id: Mapped[str] = mapped_column(String(48), ForeignKey("product_variants.id"), nullable=False)
     qty: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class WishlistItem(Base):
+    __tablename__ = "wishlist_items"
+    __table_args__ = (UniqueConstraint("user_id", "product_id", name="uq_wishlist_user_product"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id"), nullable=False)
+    product_id: Mapped[str] = mapped_column(String(32), ForeignKey("products.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
@@ -218,6 +248,7 @@ class Review(Base):
 
 class ReturnRecord(Base):
     __tablename__ = "returns"
+    __table_args__ = (UniqueConstraint("order_id", name="uq_returns_order_id"),)
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     order_id: Mapped[str] = mapped_column(String(32), ForeignKey("orders.id"), nullable=False)

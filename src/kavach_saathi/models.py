@@ -132,6 +132,23 @@ class TokenResponse(BaseModel):
     user: AuthUser
 
 
+class SellerSpecification(BaseModel):
+    key: str = Field(pattern=r"^[a-z][a-z0-9_]{0,79}$")
+    label: str = Field(min_length=1, max_length=120)
+    value: Any
+    value_type: Literal["text", "number", "percentage", "measurement", "boolean", "list"] = "text"
+    unit: str | None = Field(default=None, max_length=24)
+    comparison_group: str | None = Field(default=None, max_length=64)
+    comparable: bool = True
+
+
+class SellerSizeRow(BaseModel):
+    size: str = Field(min_length=1, max_length=16)
+    dimensions_cm: dict[str, float] = Field(default_factory=dict)
+    stock_qty: int = Field(ge=0)
+    price: float | None = Field(default=None, gt=0)
+
+
 class SellerProductCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     brand: str | None = None
@@ -144,6 +161,19 @@ class SellerProductCreate(BaseModel):
     original_price: float = Field(gt=0)
     image_keys: list[str] = Field(min_length=1, max_length=5)
     seller_specs: dict[str, Any] = Field(default_factory=dict)
+    specifications: list[SellerSpecification] = Field(default_factory=list, max_length=100)
+    size_chart: list[SellerSizeRow] = Field(default_factory=list, max_length=30)
+    stock_qty: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def unique_listing_rows(self) -> SellerProductCreate:
+        spec_keys = [item.key for item in self.specifications]
+        if len(spec_keys) != len(set(spec_keys)):
+            raise ValueError("specification keys must be unique")
+        sizes = [item.size.casefold() for item in self.size_chart]
+        if len(sizes) != len(set(sizes)):
+            raise ValueError("size chart sizes must be unique")
+        return self
 
 
 class SellerProductUpdate(BaseModel):
@@ -211,7 +241,7 @@ class ReviewAnalyzeRequest(BaseModel):
 class VoiceQueryRequest(BaseModel):
     buyer_id: str
     product_id: str
-    compare_product_ids: list[str] = Field(default_factory=list, max_length=4)
+    compare_product_ids: list[str] = Field(default_factory=list, max_length=100)
     text: str | None = None
     audio_key: str | None = None
     language: str = "hi"
@@ -274,6 +304,11 @@ class ReviewCreateRequest(BaseModel):
     rating: int = Field(ge=1, le=5)
     text: str = Field(default="", max_length=2000)
     image_key: str | None = None
+
+
+class ReturnCreateRequest(BaseModel):
+    order_id: str
+    reason: str = Field(min_length=3, max_length=255)
 
 
 class PresignRequest(BaseModel):

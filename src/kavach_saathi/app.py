@@ -274,7 +274,15 @@ def create_app() -> FastAPI:
             "return_window_days": product["return_window_days"],
             "image_url": f"/mock-assets/{media_path}",
             "catalogue_images": [
-                f"/mock-assets/catalog/{product['id']}-{view}.png" for view in ("front", "back", "left", "right")
+                {
+                    "angle": image["angle"],
+                    "url": f"/mock-assets/{image['url'].removeprefix('assets/mock/')}",
+                    "verified": image["verified"],
+                }
+                for image in container.repository.product_images(product["id"])
+            ] or [
+                {"angle": angle, "url": f"/mock-assets/{media_path}", "verified": False}
+                for angle in ("front", "back", "left", "right")
             ],
         }
 
@@ -318,6 +326,7 @@ def create_app() -> FastAPI:
     async def storefront_product_detail(product_id: str, container: Container = Depends(get_container)):
         product = container.repository.get("products", product_id)
         result = storefront_product(product, container)
+        result["specifications"] = container.repository.product_specifications(product_id)
         result["reviews"] = container.repository.product_reviews(product_id)[:8]
         return result
 

@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="A simple live demo of the eight Kavach Saathi commerce agents." />
+    <title>Kavach Saathi · Agent Demo</title>
+    <link rel="stylesheet" href="/static/app.css" />
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Kavach Saathi home">
+        <span class="brand-mark">KS</span>
+        <span>
+          <strong>Kavach Saathi</strong>
+          <small>Trust layer for every order</small>
+        </span>
+      </a>
+      <div class="server-status" id="server-status" role="status">
+        <span class="status-dot"></span>
+        <span id="status-text">Connecting…</span>
+      </div>
+    </header>
+
+    <main class="page-shell">
+      <section class="intro">
+        <div>
+          <p class="eyebrow">LIVE AGENT PLAYGROUND</p>
+          <h1>Watch trust checks happen<br />across one order.</h1>
+          <p class="intro-copy">
+            A simple walkthrough using Sunita's mock order. Run the complete journey or inspect one check at a time.
+          </p>
+        </div>
+        <button class="primary-button" id="run-all" type="button">
+          <span class="play-icon">▶</span>
+          <span>Run all 8 agents</span>
+        </button>
+      </section>
+
+      <section class="workspace">
+        <aside class="order-panel">
+          <div class="product-image-wrap">
+            <img src="/mock-assets/products/P-001.png" alt="Mock maroon floral cotton kurta" />
+            <span class="verified-pill">✓ Seed verified</span>
+          </div>
+          <div class="product-copy">
+            <p class="muted-label">GOLDEN DEMO ORDER</p>
+            <h2>Maroon Floral Cotton Kurta</h2>
+            <p class="seller">Surat Saheli Studio <span>★ 4.0</span></p>
+            <div class="price-line"><strong>₹349</strong><s>₹799</s><span>56% off</span></div>
+          </div>
+          <dl class="order-facts">
+            <div><dt>Buyer</dt><dd>Sunita · B-001</dd></div>
+            <div><dt>Order</dt><dd>O-GOLDEN</dd></div>
+            <div><dt>Language</dt><dd>Hindi</dd></div>
+            <div><dt>Location</dt><dd>Bilaspur</dd></div>
+          </dl>
+          <a class="api-link" href="/docs" target="_blank" rel="noreferrer">Open API docs ↗</a>
+        </aside>
+
+        <section class="agent-panel" aria-labelledby="agent-title">
+          <div class="panel-heading">
+            <div>
+              <p class="muted-label">SUPERVISED WORKFLOW</p>
+              <h2 id="agent-title">Eight agents, one evidence trail</h2>
+            </div>
+            <button class="quiet-button" id="reset" type="button">Reset</button>
+          </div>
+
+          <div class="agent-track" id="agent-track" aria-label="Agent status">
+            <button class="agent-chip" data-agent="catalogue_truth" data-flow="listing" type="button"><b>01</b><span>Catalogue<br />Truth</span></button>
+            <button class="agent-chip" data-agent="spec_enforcer" data-flow="listing" type="button"><b>02</b><span>Spec<br />Enforcer</span></button>
+            <button class="agent-chip" data-agent="size_translator" data-flow="voice" type="button"><b>03</b><span>Size<br />Translator</span></button>
+            <button class="agent-chip" data-agent="review_filter" data-flow="review" type="button"><b>04</b><span>Review<br />Truth</span></button>
+            <button class="agent-chip" data-agent="voice_qa" data-flow="voice" type="button"><b>05</b><span>Voice<br />Q&amp;A</span></button>
+            <button class="agent-chip" data-agent="address_guardian" data-flow="address" type="button"><b>06</b><span>Address<br />Guardian</span></button>
+            <button class="agent-chip" data-agent="delivery_confirmation" data-flow="confirmation" type="button"><b>07</b><span>Delivery<br />Confirm</span></button>
+            <button class="agent-chip" data-agent="return_verifier" data-flow="return" type="button"><b>08</b><span>Return<br />Verifier</span></button>
+          </div>
+
+          <form class="ask-box" id="ask-form">
+            <label for="question">Ask GPT-OSS about this product</label>
+            <div class="ask-row">
+              <input
+                id="question"
+                name="question"
+                value="Iska fabric kya hai aur return policy kya hai?"
+                autocomplete="off"
+                required
+              />
+              <button type="submit" id="ask-button">Ask Groq</button>
+            </div>
+            <small>Grounded in the mock catalogue and seller evidence. The API key stays on the server.</small>
+          </form>
+
+          <div class="run-summary" id="run-summary">
+            <div class="empty-state" id="empty-state">
+              <span class="empty-icon">✦</span>
+              <div>
+                <strong>Ready when you are</strong>
+                <p>Press “Run all 8 agents” or choose an agent above.</p>
+              </div>
+            </div>
+            <div class="summary-strip hidden" id="summary-strip" aria-live="polite">
+              <div><span id="completed-count">0</span><small>Agents complete</small></div>
+              <div><span id="evidence-count">0</span><small>Evidence signals</small></div>
+              <div><span id="elapsed-time">0.0s</span><small>Total runtime</small></div>
+              <div class="decision-badge" id="decision-badge">Running</div>
+            </div>
+            <div class="result-list" id="result-list" aria-live="polite"></div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <footer>
+      <span>Synthetic prototype data · No real customer information</span>
+      <span>Agent 7 is simulated by design</span>
+    </footer>
+  </body>
+</html>

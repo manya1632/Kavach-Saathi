@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -118,8 +119,6 @@ class GroqReasoningProvider(ReasoningProvider):
         reasoning_effort: str = "medium",
         images: list[bytes] | None = None,
     ) -> T:
-        if images:
-            raise ReasoningUnavailable("Groq text models do not support image input in this integration")
         # Groq's strict JSON-schema mode requires `additionalProperties: false` on
         # every object -- but setting that via pydantic's `extra="forbid"` on the
         # model itself breaks Gemini's schema conversion (observed live: translates to
@@ -128,12 +127,28 @@ class GroqReasoningProvider(ReasoningProvider):
         # both providers' opposite requirements from the same pydantic model.
         json_schema = _strict_schema(schema.model_json_schema())
 
+        # Agents 2/8's OCR calls need a vision-capable model; the text-only default
+        # (openai/gpt-oss-120b) can't read images at all. meta-llama/llama-4-scout is
+        # the multimodal model Groq actually serves under this API key (verified live
+        # -- meta-llama/llama-4-maverick-17b-128e-instruct 404s on this account), so
+        # image-bearing calls route there instead of failing outright when this is the
+        # only reachable provider (e.g. Gemini's shared-capacity 503s).
+        if images:
+            content: Any = [{"type": "text", "text": prompt}]
+            for image_bytes in images:
+                encoded = base64.b64encode(image_bytes).decode("ascii")
+                content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{encoded}"}})
+            model = self.settings.groq_vision_model
+        else:
+            content = prompt
+            model = self.settings.groq_model
+
         async def invoke() -> Any:
             return await self.client.chat.completions.create(
-                model=self.settings.groq_model,
+                model=model,
                 messages=[
                     {"role": "system", "content": system},
-                    {"role": "user", "content": prompt},
+                    {"role": "user", "content": content},
                 ],
                 reasoning_effort=reasoning_effort,
                 response_format={
@@ -148,10 +163,10 @@ class GroqReasoningProvider(ReasoningProvider):
             )
 
         response = await self._with_rate_limit_retry(invoke)
-        content = response.choices[0].message.content
-        if not content:
+        response_text = response.choices[0].message.content
+        if not response_text:
             raise RuntimeError("Groq returned an empty structured response")
-        return schema.model_validate(json.loads(content))
+        return schema.model_validate(json.loads(response_text))
 
 
 class GeminiReasoningProvider(ReasoningProvider):

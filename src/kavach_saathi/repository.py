@@ -366,6 +366,42 @@ class CommerceRepository:
                 review.hide_reason = reason
                 session.commit()
 
+    def record_return_decision(
+        self,
+        order_id: str,
+        *,
+        buyer_id: str | None,
+        video_key: str,
+        confidence_score: int,
+        decision: str,
+    ) -> str:
+        """Persist Agent 8's decision as a real `returns` row and stamp the parent
+        order's `return_outcome` -- previously computed and returned to the caller but
+        never written anywhere, leaving `seller_trust_score`/`buyer_trust_signals`
+        with no real return data to compute from.
+        """
+        import uuid
+        from datetime import UTC, datetime
+
+        with self._session() as session:
+            record = session.execute(
+                select(ReturnRecord).where(ReturnRecord.order_id == order_id)
+            ).scalars().first()
+            if record is None:
+                record = ReturnRecord(id=f"RT-{uuid.uuid4().hex[:10].upper()}", order_id=order_id)
+                session.add(record)
+            record.buyer_id = buyer_id
+            record.video_url = video_key
+            record.confidence_score = confidence_score
+            record.decision = decision
+            record.decided_at = datetime.now(UTC)
+
+            order = session.get(Order, order_id)
+            if order:
+                order.return_outcome = decision
+            session.commit()
+            return record.id
+
     def update_product_specs(
         self,
         product_id: str,

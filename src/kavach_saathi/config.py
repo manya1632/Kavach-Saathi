@@ -47,10 +47,12 @@ class Settings(BaseSettings):
     digilocker_client_id: str | None = None
     digilocker_client_secret: str | None = None
     google_maps_api_key: str | None = None
+    google_vision_api_key: str | None = None
 
     groq_api_key: str | None = None
     external_secret_arn: str | None = None
     groq_model: str = "openai/gpt-oss-120b"
+    groq_vision_model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
     groq_reasoning_effort: Literal["low", "medium", "high"] = "medium"
     reasoning_mode: Literal["demo", "groq"] = "demo"
 

@@ -294,10 +294,15 @@ class Review(Base):
 
 class ReturnRecord(Base):
     __tablename__ = "returns"
-    __table_args__ = (UniqueConstraint("order_id", name="uq_returns_order_id"),)
+    __table_args__ = (UniqueConstraint("order_id", "product_id", name="uq_returns_order_id_product_id"),)
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     order_id: Mapped[str] = mapped_column(String(32), ForeignKey("orders.id"), nullable=False)
+    # Which line item within a (possibly multi-product) order this return covers --
+    # without this, a single return record was shared across every product in the
+    # order, so returning/exchanging one item incorrectly dragged every other item
+    # in the same order into the same return request.
+    product_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("products.id"), nullable=True)
     buyer_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("users.id"), nullable=True)
     reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     video_url: Mapped[str | None] = mapped_column("video", String(255), nullable=True)

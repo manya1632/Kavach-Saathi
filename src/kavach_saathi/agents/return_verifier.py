@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import time
 
+from sqlalchemy import select
+
 from kavach_saathi.agent_logging import log_agent_call
 from kavach_saathi.agents.base import Agent
 from kavach_saathi.config import get_settings
@@ -53,8 +55,22 @@ class ReturnVerifierAgent(Agent):
         started_at = time.perf_counter()
         settings = get_settings()
         order = self.context.repository.get("orders", request.order_id)
-        product = self.context.repository.get("products", order["product_id"])
+        product = self.context.repository.get("products", request.product_id)
         reference_bytes = await read_image_bytes(product["media"]["primary"], settings)
+
+        # A multi-seller cart order's arbitrary "first item" (what repository.get()
+        # returns) may not be this specific line item -- look up the real seller for
+        # the product actually being returned so trust scoring credits/blames the
+        # right seller.
+        with SessionLocal() as item_session:
+            from kavach_saathi.db.models import OrderItem
+
+            order_item = item_session.execute(
+                select(OrderItem).where(
+                    OrderItem.order_id == request.order_id, OrderItem.product_id == request.product_id
+                )
+            ).scalars().first()
+            item_seller_id = order_item.seller_id if order_item else order["seller_id"]
 
         video_bytes = await read_image_bytes(request.video_key, settings)
         frames = self.vision.extract_frames(video_bytes, count=5)
@@ -126,13 +142,14 @@ class ReturnVerifierAgent(Agent):
         # previously computed and returned to the caller but never written anywhere.
         self.context.repository.record_return_decision(
             request.order_id,
+            product_id=request.product_id,
             buyer_id=order["buyer_id"],
             video_key=request.video_key,
             confidence_score=score,
             decision=decision,
         )
         with SessionLocal() as trust_session:
-            compute_seller_trust_score(trust_session, order["seller_id"])
+            compute_seller_trust_score(trust_session, item_seller_id)
             compute_buyer_trust_signal(trust_session, order["buyer_id"])
             trust_session.commit()
 

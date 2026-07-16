@@ -573,6 +573,7 @@ class CommerceRepository:
         self,
         order_id: str,
         *,
+        product_id: str | None = None,
         buyer_id: str | None,
         video_key: str,
         confidence_score: int,
@@ -589,9 +590,11 @@ class CommerceRepository:
         from kavach_saathi.db.models import OrderStatusHistory, OrderItem
 
         with self._session() as session:
-            record = session.execute(select(ReturnRecord).where(ReturnRecord.order_id == order_id)).scalars().first()
+            record = session.execute(
+                select(ReturnRecord).where(ReturnRecord.order_id == order_id, ReturnRecord.product_id == product_id)
+            ).scalars().first()
             if record is None:
-                record = ReturnRecord(id=f"RT-{uuid.uuid4().hex[:10].upper()}", order_id=order_id)
+                record = ReturnRecord(id=f"RT-{uuid.uuid4().hex[:10].upper()}", order_id=order_id, product_id=product_id)
                 session.add(record)
             record.buyer_id = buyer_id
             record.video_url = video_key
@@ -618,7 +621,15 @@ class CommerceRepository:
                 if record.return_type == "exchange":
                     if not record.replacement_order_id:
                         replacement_id = f"O-EXCH-{uuid.uuid4().hex[:10].upper()}"
-                        orig_items = session.query(OrderItem).filter(OrderItem.order_id == record.order_id).all()
+                        # Only the exchanged product itself, not every item in the
+                        # original order -- an exchange on one line item must not
+                        # silently duplicate the buyer's other, unrelated purchases.
+                        # (product_id is None for legacy/direct callers that never
+                        # scoped to one item -- fall back to the whole order for them.)
+                        item_filter = [OrderItem.order_id == record.order_id]
+                        if record.product_id is not None:
+                            item_filter.append(OrderItem.product_id == record.product_id)
+                        orig_items = session.query(OrderItem).filter(*item_filter).all()
                         replacement_order = Order(
                             id=replacement_id,
                             buyer_id=record.buyer_id,

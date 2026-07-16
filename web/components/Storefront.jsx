@@ -458,7 +458,7 @@ function CartDrawer({ items, open, busyItem, onClose, onUpdate, onRemove, onChec
   );
 }
 
-function AccountDataDrawer({ type, open, orders, wishlist, returns, onClose, onOpenProduct, onRemoveWishlist, onStartReturn, onStartReview, onViewReturn }) {
+function AccountDataDrawer({ type, open, orders, wishlist, returns, onClose, onOpenProduct, onRemoveWishlist, onStartReturn, onStartReview, onViewReturn, onSubmitFitFeedback }) {
   const title = type === "orders" ? "My Orders" : type === "wishlist" ? "My Wishlist" : "My Returns";
   const items = type === "orders" ? orders : type === "wishlist" ? wishlist : returns;
 
@@ -468,6 +468,11 @@ function AccountDataDrawer({ type, open, orders, wishlist, returns, onClose, onO
     if (["CANCELLED", "RETURN_REJECTED"].includes(s)) return "#e5484d";
     return "#6366f1";
   }
+
+  // A different item's return may have already moved the order out of DELIVERED
+  // (e.g. into RETURN_INITIATED) -- any of these still means the order was
+  // delivered, so its other, untouched items should still show Return/Exchange/Review.
+  const POST_DELIVERY_STATUSES = ["DELIVERED", "RETURN_INITIATED", "RETURN_UNDER_REVIEW", "RETURN_APPROVED", "RETURN_REJECTED", "MANUAL_INSPECTION", "CLOSED"];
 
   return (
     <div className={`drawer-layer ${open ? "open" : ""}`} aria-hidden={!open}>
@@ -492,51 +497,63 @@ function AccountDataDrawer({ type, open, orders, wishlist, returns, onClose, onO
               <p style={{ margin: "0 0 8px", color: "#64748b", fontSize: "13px" }}>
                 {new Date(order.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })} · {money(order.total_amount)} · {order.payment_mode?.toUpperCase()}
               </p>
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "10px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "10px" }}>
                 {order.items.map((item) => (
-                  <button type="button" key={`${order.id}-${item.product_id}`} onClick={() => onOpenProduct(item.product_id)} style={{ display: "flex", alignItems: "center", gap: "10px", background: "#f8fafc", border: "1px solid var(--border)", borderRadius: "6px", padding: "8px", cursor: "pointer", textAlign: "left", width: "100%" }}>
-                    <img src={assetUrl(item.image_url)} alt="" style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "4px", flexShrink: 0 }} />
-                    <span style={{ flex: 1, minWidth: 0 }}>
-                      <span style={{ display: "block", fontWeight: "600", fontSize: "13px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.product_name}</span>
-                      <small style={{ color: "#64748b" }}>Size {item.size || "Standard"} · Qty {item.qty}</small>
-                    </span>
-                    {item.already_reviewed && <span style={{ fontSize: "11px", color: "#16a34a", flexShrink: 0 }}>✓ Reviewed</span>}
-                  </button>
+                  <div key={`${order.id}-${item.product_id}`} style={{ display: "flex", flexDirection: "column", gap: "6px", background: "#f8fafc", border: "1px solid var(--border)", borderRadius: "6px", padding: "8px" }}>
+                    <button type="button" onClick={() => onOpenProduct(item.product_id)} style={{ display: "flex", alignItems: "center", gap: "10px", background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left", width: "100%" }}>
+                      <img src={assetUrl(item.image_url)} alt="" style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "4px", flexShrink: 0 }} />
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: "block", fontWeight: "600", fontSize: "13px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.product_name}</span>
+                        <small style={{ color: "#64748b" }}>Size {item.size || "Standard"} · Qty {item.qty}</small>
+                      </span>
+                      {item.already_reviewed && <span style={{ fontSize: "11px", color: "#16a34a", flexShrink: 0 }}>✓ Reviewed</span>}
+                    </button>
+                    {item.return_info && (
+                      <div style={{ background: "#fef9f0", border: "1px solid #fde68a", borderRadius: "6px", padding: "6px 8px", fontSize: "12px" }}>
+                        <span style={{ fontWeight: "600", color: "#92400e" }}>{item.return_info.return_type === "exchange" ? "Exchange" : "Return"}</span>
+                        {" — "}
+                        <span style={{ color: "#78350f", textTransform: "capitalize" }}>{(item.return_info.status || "").replace(/_/g, " ")}</span>
+                        {item.return_info.decision && <span style={{ marginLeft: "4px", color: "#64748b" }}>· {item.return_info.decision}</span>}
+                        {item.return_info.confidence_score != null && <span style={{ marginLeft: "4px", color: "#64748b" }}>· Agent: {item.return_info.confidence_score}%</span>}
+                        {item.return_info.pickup_date && <div style={{ color: "#64748b", marginTop: "2px" }}>Pickup: {new Date(item.return_info.pickup_date).toLocaleDateString("en-IN")}</div>}
+                        {item.return_info.refund_status && <div style={{ color: "#64748b", marginTop: "2px" }}>Refund: {item.return_info.refund_status}</div>}
+                        <button
+                          type="button"
+                          className="secondary-cta compact"
+                          style={{ marginTop: "6px", width: "100%", fontSize: "11px", padding: "4px 8px" }}
+                          onClick={() => onViewReturn(item.return_info.id)}
+                        >
+                          View Status &amp; Verification Page
+                        </button>
+                      </div>
+                    )}
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      {POST_DELIVERY_STATUSES.includes(order.status) && !item.return_info && (
+                        <>
+                          <button className="secondary-cta compact" type="button" style={{ flex: 1, fontSize: "12px" }} onClick={() => onStartReturn(order.id, item.product_id, "refund")}><RotateCcw size={13} /> Return</button>
+                          <button className="secondary-cta compact" type="button" style={{ flex: 1, fontSize: "12px" }} onClick={() => onStartReturn(order.id, item.product_id, "exchange")}><ArrowRight size={13} /> Exchange</button>
+                        </>
+                      )}
+                      {POST_DELIVERY_STATUSES.includes(order.status) && !item.already_reviewed && (
+                        <button className="secondary-cta compact" type="button" style={{ flex: 1, fontSize: "12px" }} onClick={() => onStartReview(item.product_id, order.id)}><Star size={13} /> Rate &amp; Review</button>
+                      )}
+                    </div>
+                  </div>
                 ))}
               </div>
-              {order.return_info && (
-                <div style={{ background: "#fef9f0", border: "1px solid #fde68a", borderRadius: "6px", padding: "8px 10px", marginBottom: "8px", fontSize: "13px" }}>
-                  <span style={{ fontWeight: "600", color: "#92400e" }}>{order.return_info.return_type === "exchange" ? "Exchange" : "Return"}</span>
-                  {" — "}
-                  <span style={{ color: "#78350f", textTransform: "capitalize" }}>{(order.return_info.status || "").replace(/_/g, " ")}</span>
-                  {order.return_info.decision && <span style={{ marginLeft: "4px", color: "#64748b" }}>· {order.return_info.decision}</span>}
-                  {order.return_info.confidence_score != null && <span style={{ marginLeft: "4px", color: "#64748b" }}>· Agent: {order.return_info.confidence_score}%</span>}
-                  {order.return_info.pickup_date && <div style={{ color: "#64748b", marginTop: "2px" }}>Pickup: {new Date(order.return_info.pickup_date).toLocaleDateString("en-IN")}</div>}
-                  {order.return_info.refund_status && <div style={{ color: "#64748b", marginTop: "2px" }}>Refund: {order.return_info.refund_status}</div>}
-                  <button 
-                    type="button" 
-                    className="secondary-cta compact" 
-                    style={{ marginTop: "6px", width: "100%", fontSize: "11px", padding: "4px 8px" }}
-                    onClick={() => onViewReturn(order.return_info.id)}
-                  >
-                    View Status &amp; Verification Page
-                  </button>
+              {POST_DELIVERY_STATUSES.includes(order.status) && !order.fit_feedback && (
+                <div style={{ background: "#f8fafc", border: "1px solid var(--border)", borderRadius: "6px", padding: "8px 10px", marginBottom: "8px" }}>
+                  <p style={{ margin: "0 0 6px", fontSize: "13px", fontWeight: "600" }}>How did it fit?</p>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <button type="button" className="secondary-cta compact" style={{ flex: 1, fontSize: "12px" }} onClick={() => onSubmitFitFeedback(order.id, "tight")}>Too tight</button>
+                    <button type="button" className="secondary-cta compact" style={{ flex: 1, fontSize: "12px" }} onClick={() => onSubmitFitFeedback(order.id, "good")}>Good fit</button>
+                    <button type="button" className="secondary-cta compact" style={{ flex: 1, fontSize: "12px" }} onClick={() => onSubmitFitFeedback(order.id, "loose")}>Too loose</button>
+                  </div>
                 </div>
               )}
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                {order.status === "DELIVERED" && !order.return_info && (
-                  <>
-                    <button className="secondary-cta" type="button" style={{ flex: 1 }} onClick={() => onStartReturn(order.id, "refund")}><RotateCcw size={13} /> Return</button>
-                    <button className="secondary-cta" type="button" style={{ flex: 1 }} onClick={() => onStartReturn(order.id, "exchange")}><ArrowRight size={13} /> Exchange</button>
-                  </>
-                )}
-                {order.status === "DELIVERED" && order.items.some((i) => !i.already_reviewed) && (
-                  <button className="secondary-cta" type="button" style={{ flex: 1 }} onClick={() => { const u = order.items.find((i) => !i.already_reviewed); if (u) onStartReview(u.product_id, order.id); }}><Star size={13} /> Rate &amp; Review</button>
-                )}
-                {!["DELIVERED", "RETURN_INITIATED", "RETURN_UNDER_REVIEW", "MANUAL_INSPECTION", "RETURN_APPROVED", "CLOSED", "CANCELLED"].includes(order.status) && (
-                  <small style={{ color: "#94a3b8", fontSize: "12px" }}>Return available after delivery</small>
-                )}
-              </div>
+              {!["DELIVERED", "RETURN_INITIATED", "RETURN_UNDER_REVIEW", "MANUAL_INSPECTION", "RETURN_APPROVED", "CLOSED", "CANCELLED"].includes(order.status) && (
+                <small style={{ color: "#94a3b8", fontSize: "12px" }}>Return available after delivery</small>
+              )}
             </article>
           ))}
 
@@ -597,6 +614,7 @@ function ReturnVerificationDrawer({ open, returnId, returns, orders, onClose, on
 
   const record = returns.find((r) => r.id === returnId);
   const order = record ? orders.find((o) => o.id === record.order_id) : null;
+  const returnedItem = order?.items?.find((item) => item.product_id === record?.product_id);
 
   useEffect(() => {
     return () => {
@@ -706,6 +724,7 @@ function ReturnVerificationDrawer({ open, returnId, returns, orders, onClose, on
       setStatusText("Agent 8 is evaluating return evidence...");
       await postAndPoll("/returns/analyze", {
         order_id: record.order_id,
+        product_id: record.product_id,
         video_key: presignData.object_key,
         additional_image_keys: []
       });
@@ -737,15 +756,15 @@ function ReturnVerificationDrawer({ open, returnId, returns, orders, onClose, on
 
         <div style={{ border: "1px solid var(--line)", borderRadius: "10px", padding: "12px", background: "var(--soft)" }}>
           <span style={{ fontSize: "12px", color: "var(--muted)" }}>Original Order: <strong>{record.order_id}</strong></span>
-          {order && order.items?.map((item) => (
-            <div key={item.product_id} style={{ display: "flex", gap: "10px", marginTop: "8px", alignItems: "center" }}>
-              <img src={assetUrl(item.image_url)} alt="" style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "6px" }} />
+          {returnedItem && (
+            <div style={{ display: "flex", gap: "10px", marginTop: "8px", alignItems: "center" }}>
+              <img src={assetUrl(returnedItem.image_url)} alt="" style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "6px" }} />
               <div style={{ flex: 1 }}>
-                <span style={{ display: "block", fontSize: "13px", fontWeight: "bold" }}>{item.product_name}</span>
-                <small style={{ color: "var(--muted)" }}>Size: {item.size || "Standard"} · Qty: {item.qty}</small>
+                <span style={{ display: "block", fontSize: "13px", fontWeight: "bold" }}>{returnedItem.product_name}</span>
+                <small style={{ color: "var(--muted)" }}>Size: {returnedItem.size || "Standard"} · Qty: {returnedItem.qty}</small>
               </div>
             </div>
-          ))}
+          )}
         </div>
 
         <div style={{ border: "1px solid var(--line)", borderRadius: "12px", padding: "16px", background: "white", display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -1472,7 +1491,7 @@ function AddressManagerDrawer({ open, onClose, buyerId }) {
         </div>
 
         {showOtpModal && (
-          <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}>
+          <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.5)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}>
             <div style={{ background: "white", padding: "24px", borderRadius: "12px", width: "100%", maxWidth: "380px", display: "flex", flexDirection: "column", gap: "16px", boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <h3 style={{ margin: 0 }}>Phone Verification</h3>
@@ -1747,11 +1766,19 @@ export default function Storefront({ initialProductId = null }) {
     });
   }
 
-  async function startReturn(orderId, returnType = "refund") {
-    const reason = window.prompt(`Why are you ${returnType === "exchange" ? "exchanging" : "returning"} this order?`);
+  async function submitFitFeedback(orderId, feedback) {
+    try {
+      await post(`/orders/${orderId}/fit-feedback`, { feedback });
+      await refreshAccountData();
+      setToast("Thanks! Size Saathi will use this for future recommendations.");
+    } catch (reason) { setToast(reason.message || "Could not save fit feedback"); }
+  }
+
+  async function startReturn(orderId, productId, returnType = "refund") {
+    const reason = window.prompt(`Why are you ${returnType === "exchange" ? "exchanging" : "returning"} this product?`);
     if (!reason) return;
     try {
-      const res = await createReturnRequest(orderId, reason, returnType);
+      const res = await createReturnRequest(orderId, productId, reason, returnType);
       await refreshAccountData();
       setSelectedReturnId(res.id);
       setDrawer("return-verify");
@@ -2106,7 +2133,7 @@ export default function Storefront({ initialProductId = null }) {
         <CartDrawer items={cart} open={drawer === "cart"} busyItem={cartBusy} onClose={() => setDrawer(null)} onUpdate={updateCartQuantity} onRemove={removeFromCart} onCheckout={() => requireAuth(() => { setDrawer("checkout"); setCheckoutStep("address"); })} />
         <CheckoutDrawer open={drawer === "checkout"} busy={busy} step={checkoutStep} orderId={lastOrderId} orderSummary={lastOrderSummary} onClose={() => setDrawer(null)} onGoOrders={() => setDrawer("orders")} onConfirm={confirmOrder} onConfirmPrepaid={confirmOrderPrepaid} addresses={addresses} onManageAddresses={() => setDrawer("addresses")} buyerName={auth?.user?.name} />
         <AddressManagerDrawer open={drawer === "addresses"} onClose={() => { setDrawer(null); refreshAccountData(); }} buyerId={auth?.user?.id} />
-        <AccountDataDrawer type={drawer} open={["orders", "wishlist", "returns"].includes(drawer)} orders={orders} wishlist={wishlist} returns={returns} onClose={() => setDrawer(null)} onOpenProduct={(productId) => router.push(`/products/${productId}`)} onRemoveWishlist={(productId) => toggleWishlist({ id: productId })} onStartReturn={startReturn} onStartReview={startReview} onViewReturn={handleViewReturn} />
+        <AccountDataDrawer type={drawer} open={["orders", "wishlist", "returns"].includes(drawer)} orders={orders} wishlist={wishlist} returns={returns} onClose={() => setDrawer(null)} onOpenProduct={(productId) => router.push(`/products/${productId}`)} onRemoveWishlist={(productId) => toggleWishlist({ id: productId })} onStartReturn={startReturn} onStartReview={startReview} onViewReturn={handleViewReturn} onSubmitFitFeedback={submitFitFeedback} />
         <ReturnVerificationDrawer open={drawer === "return-verify"} returnId={selectedReturnId} returns={returns} orders={orders} onClose={() => { setDrawer(null); refreshAccountData(); }} onRefreshData={refreshAccountData} />
         <TrustDock trust={trust} busy={busy} onClose={() => setTrust((current) => ({ ...current, open: false }))} />
         <AuthModal open={authModalOpen} onClose={() => { setAuthModalOpen(false); setPendingAfterAuth(null); }} onAuthenticated={handleAuthenticated} />
@@ -2191,7 +2218,7 @@ export default function Storefront({ initialProductId = null }) {
       <CartDrawer items={cart} open={drawer === "cart"} busyItem={cartBusy} onClose={() => setDrawer(null)} onUpdate={updateCartQuantity} onRemove={removeFromCart} onCheckout={() => requireAuth(() => { setDrawer("checkout"); setCheckoutStep("address"); })} />
       <CheckoutDrawer open={drawer === "checkout"} busy={busy} step={checkoutStep} orderId={lastOrderId} orderSummary={lastOrderSummary} onClose={() => setDrawer(null)} onGoOrders={() => setDrawer("orders")} onConfirm={confirmOrder} onConfirmPrepaid={confirmOrderPrepaid} addresses={addresses} onManageAddresses={() => setDrawer("addresses")} buyerName={auth?.user?.name} />
       <AddressManagerDrawer open={drawer === "addresses"} onClose={() => { setDrawer(null); refreshAccountData(); }} buyerId={auth?.user?.id} />
-      <AccountDataDrawer type={drawer} open={["orders", "wishlist", "returns"].includes(drawer)} orders={orders} wishlist={wishlist} returns={returns} onClose={() => setDrawer(null)} onOpenProduct={(productId) => router.push(`/products/${productId}`)} onRemoveWishlist={(productId) => toggleWishlist({ id: productId })} onStartReturn={startReturn} onStartReview={startReview} onViewReturn={handleViewReturn} />
+      <AccountDataDrawer type={drawer} open={["orders", "wishlist", "returns"].includes(drawer)} orders={orders} wishlist={wishlist} returns={returns} onClose={() => setDrawer(null)} onOpenProduct={(productId) => router.push(`/products/${productId}`)} onRemoveWishlist={(productId) => toggleWishlist({ id: productId })} onStartReturn={startReturn} onStartReview={startReview} onViewReturn={handleViewReturn} onSubmitFitFeedback={submitFitFeedback} />
       <ReturnVerificationDrawer open={drawer === "return-verify"} returnId={selectedReturnId} returns={returns} orders={orders} onClose={() => { setDrawer(null); refreshAccountData(); }} onRefreshData={refreshAccountData} />
       <AuthModal open={authModalOpen} onClose={() => { setAuthModalOpen(false); setPendingAfterAuth(null); }} onAuthenticated={handleAuthenticated} />
       <ReviewSummaryDialog data={reviewSummary} onClose={() => setReviewSummary(null)} />

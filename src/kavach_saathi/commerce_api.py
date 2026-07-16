@@ -43,6 +43,7 @@ from kavach_saathi.models import (
     CartItemAdd,
     CartItemUpdate,
     Coordinates,
+    FitFeedbackRequest,
     OrderCreateRequest,
     OtpSendRequest,
     OtpVerifyRequest,
@@ -57,6 +58,20 @@ from kavach_saathi.providers.razorpay_provider import RazorpayClient, RazorpayUn
 
 router = APIRouter()
 _require_buyer = require_role("buyer")
+
+# A per-item return can move the whole order out of DELIVERED (e.g. into
+# RETURN_INITIATED) while other items in the same order are still eligible for
+# their own return/exchange/fit-feedback -- any of these statuses still means the
+# order was delivered at some point.
+_POST_DELIVERY_STATUSES = {
+    OrderStatus.DELIVERED,
+    OrderStatus.RETURN_INITIATED,
+    OrderStatus.RETURN_UNDER_REVIEW,
+    OrderStatus.RETURN_APPROVED,
+    OrderStatus.RETURN_REJECTED,
+    OrderStatus.MANUAL_INSPECTION,
+    OrderStatus.CLOSED,
+}
 
 
 def _address_out(address: Address) -> dict:
@@ -520,13 +535,14 @@ async def list_my_orders(user: Annotated[User, Depends(_require_buyer)], session
         for item in session.execute(select(OrderItem).where(OrderItem.order_id.in_(order_ids))).scalars():
             items_by_order.setdefault(item.order_id, []).append(item)
 
-    # Batch-load return records and reviews for all relevant orders
-    returns_by_order: dict[str, ReturnRecord] = {}
+    # Batch-load return records (keyed per line item, not per order -- a return only
+    # ever covers the one product it was filed for) and reviews for all relevant orders
+    returns_by_order_item: dict[tuple[str, str], ReturnRecord] = {}
     if order_ids:
         for rr in session.execute(
             select(ReturnRecord).where(ReturnRecord.order_id.in_(order_ids))
         ).scalars():
-            returns_by_order[rr.order_id] = rr
+            returns_by_order_item[(rr.order_id, rr.product_id)] = rr
 
     result = []
     for order in orders:
@@ -540,16 +556,10 @@ async def list_my_orders(user: Annotated[User, Depends(_require_buyer)], session
             ).scalars():
                 reviewed_products.add(rv.product_id)
 
-        rr = returns_by_order.get(order.id)
-        result.append({
-            "id": order.id,
-            "status": order.status,
-            "total_amount": order.total_amount,
-            "payment_mode": order.payment_mode,
-            "exchange_tag": order.exchange_tag,
-            "original_order_id": order.original_order_id,
-            "created_at": order.created_at,
-            "return_info": {
+        def _return_info(rr: ReturnRecord | None) -> dict | None:
+            if not rr:
+                return None
+            return {
                 "id": rr.id,
                 "return_type": rr.return_type,
                 "status": rr.status,
@@ -559,7 +569,17 @@ async def list_my_orders(user: Annotated[User, Depends(_require_buyer)], session
                 "refund_status": rr.refund_status,
                 "replacement_order_id": rr.replacement_order_id,
                 "created_at": rr.created_at,
-            } if rr else None,
+            }
+
+        result.append({
+            "id": order.id,
+            "status": order.status,
+            "total_amount": order.total_amount,
+            "payment_mode": order.payment_mode,
+            "exchange_tag": order.exchange_tag,
+            "original_order_id": order.original_order_id,
+            "created_at": order.created_at,
+            "fit_feedback": order.fit_feedback,
             "items": [
                 {
                     "product_id": i.product_id,
@@ -569,12 +589,29 @@ async def list_my_orders(user: Annotated[User, Depends(_require_buyer)], session
                     "qty": i.qty,
                     "price_at_purchase": i.price_at_purchase,
                     "already_reviewed": i.product_id in reviewed_products,
+                    "return_info": _return_info(returns_by_order_item.get((order.id, i.product_id))),
                 }
                 for i in order_items
             ],
         })
     return result
 
+
+@router.post("/orders/{order_id}/fit-feedback")
+async def submit_fit_feedback(
+    order_id: str,
+    payload: FitFeedbackRequest,
+    user: Annotated[User, Depends(_require_buyer)],
+    session: Session = Depends(get_session),
+):
+    order = session.get(Order, order_id)
+    if not order or order.buyer_id != user.id:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.status not in _POST_DELIVERY_STATUSES:
+        raise HTTPException(status_code=409, detail="Fit feedback can only be given after delivery")
+    order.fit_feedback = payload.feedback
+    session.commit()
+    return {"order_id": order.id, "fit_feedback": order.fit_feedback}
 
 
 @router.get("/returns")
@@ -593,6 +630,7 @@ async def list_my_returns(
         {
             "id": row.id,
             "order_id": row.order_id,
+            "product_id": row.product_id,
             "reason": row.reason,
             "return_type": row.return_type,
             "status": row.status,
@@ -622,11 +660,18 @@ async def create_return_request(
     order = session.get(Order, payload.order_id)
     if not order or order.buyer_id != user.id:
         raise HTTPException(status_code=404, detail="Order not found")
-    if order.status != OrderStatus.DELIVERED:
+    if order.status not in _POST_DELIVERY_STATUSES:
         raise HTTPException(status_code=409, detail="Returns can only be requested after delivery")
-    existing = session.execute(select(ReturnRecord).where(ReturnRecord.order_id == order.id)).scalars().first()
+    item = session.execute(
+        select(OrderItem).where(OrderItem.order_id == order.id, OrderItem.product_id == payload.product_id)
+    ).scalars().first()
+    if not item:
+        raise HTTPException(status_code=404, detail="This product is not part of that order")
+    existing = session.execute(
+        select(ReturnRecord).where(ReturnRecord.order_id == order.id, ReturnRecord.product_id == payload.product_id)
+    ).scalars().first()
     if existing:
-        raise HTTPException(status_code=409, detail="A return already exists for this order")
+        raise HTTPException(status_code=409, detail="A return already exists for this product")
 
     return_type = getattr(payload, "return_type", "refund") or "refund"
     if return_type not in ("refund", "exchange"):
@@ -635,6 +680,7 @@ async def create_return_request(
     record = ReturnRecord(
         id=f"RT-{uuid4().hex[:10].upper()}",
         order_id=order.id,
+        product_id=payload.product_id,
         buyer_id=user.id,
         reason=payload.reason,
         return_type=return_type,
@@ -642,12 +688,16 @@ async def create_return_request(
         decision=None,
     )
     session.add(record)
+    # Order status still reflects "a return is in progress" at the whole-order level
+    # -- a full per-item order status machine is out of scope here; multiple returns
+    # on the same order all share this one coarse status.
     order.status = OrderStatus.RETURN_INITIATED
     session.add(OrderStatusHistory(order_id=order.id, status=OrderStatus.RETURN_INITIATED, actor="user"))
     session.flush()
     return {
         "id": record.id,
         "order_id": record.order_id,
+        "product_id": record.product_id,
         "reason": record.reason,
         "return_type": record.return_type,
         "status": record.status,

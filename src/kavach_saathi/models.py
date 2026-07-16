@@ -313,6 +313,7 @@ class AddressVerifyRequest(BaseModel):
 
 class ReturnAnalyzeRequest(BaseModel):
     order_id: str
+    product_id: str
     video_key: str
     additional_image_keys: list[str] = Field(default_factory=list, max_length=5)
     idempotency_key: str | None = None
@@ -350,6 +351,7 @@ class ReviewCreateRequest(BaseModel):
 
 class ReturnCreateRequest(BaseModel):
     order_id: str
+    product_id: str
     reason: str = Field(min_length=3, max_length=255)
     return_type: Literal["refund", "exchange"] = "refund"
 
@@ -438,3 +440,7 @@ class OtpVerifyRequest(BaseModel):
     phone: str = Field(pattern=r"^\+?[1-9]\d{1,14}$")
     otp: str = Field(min_length=6, max_length=6)
     address_session_id: str = Field(min_length=16, max_length=64)
+
+
+class FitFeedbackRequest(BaseModel):
+    feedback: Literal["good", "tight", "loose"]

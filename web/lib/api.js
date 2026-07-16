@@ -104,7 +104,7 @@ export const getWishlist = () => get("/wishlist");
 export const addWishlist = (productId) => post(`/wishlist/${productId}`, {});
 export const removeWishlist = (productId) => del(`/wishlist/${productId}`);
 export const listMyReturns = () => get("/returns");
-export const createReturnRequest = (orderId, reason, returnType = "refund") => post("/returns", { order_id: orderId, reason, return_type: returnType });
+export const createReturnRequest = (orderId, productId, reason, returnType = "refund") => post("/returns", { order_id: orderId, product_id: productId, reason, return_type: returnType });
 export const createReview = (payload) => post("/reviews", payload);
 
 export function assetUrl(path) {

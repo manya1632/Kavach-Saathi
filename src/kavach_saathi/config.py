@@ -88,6 +88,7 @@ class Settings(BaseSettings):
     twilio_from_number: str | None = None
     twilio_whatsapp_from: str = "whatsapp:+14155238886"  # Twilio's shared sandbox number
     otp_demo_code: str | None = None
+    allow_demo_otp: bool = False
     otp_expiry_seconds: int = Field(default=300, ge=60, le=900)
     otp_resend_cooldown_seconds: int = Field(default=60, ge=15, le=300)
     otp_max_attempts: int = Field(default=3, ge=1, le=10)
@@ -98,6 +99,11 @@ class Settings(BaseSettings):
     public_base_url: str | None = None
     agent7_max_retries: int = Field(default=2, ge=0, le=5)
 
+    twilio_verify_service_sid: str | None = None
+    twilio_order_confirmation_content_sid: str | None = None
+    twilio_delivery_date_content_sid: str | None = None
+    twilio_reschedule_content_sid: str | None = None
+    twilio_cancellation_content_sid: str | None = None
     max_agent_iterations: int = Field(default=4, ge=1, le=8)
     provider_timeout_seconds: float = Field(default=30.0, ge=1, le=120)
 

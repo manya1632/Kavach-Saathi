@@ -82,7 +82,7 @@ class SizeTranslatorAgent(Agent):
                     ),
                     "metadata": {
                         "buyer_id": buyer_id,
-                        "brand": product.get("brand", ""),
+                        "brand": product.get("brand") or "",
                         "size": order.get("size", ""),
                         "fit_feedback": order["fit_feedback"],
                     },
@@ -168,83 +168,150 @@ class SizeTranslatorAgent(Agent):
         history = self.context.repository.buyer_orders(request.buyer_id)
         good_history = [order for order in history if order.get("fit_feedback") == "good"]
 
-        rag_error: str | None = None
-        recommendation: SizeRecommendation | None = None
-        retrieved: dict = {}
+        has_sufficient_evidence = len(good_history) > 0 or (bool(body.get("chest")) and bool(body.get("waist")))
 
-        if chart:
-            try:
-                candidate, retrieved = await self._rag_recommend(buyer, product, chart, body, history)
-                if candidate.recommended_size not in chart:
-                    raise ValueError(f"Model recommended an out-of-chart size: {candidate.recommended_size}")
-                recommendation = candidate
-            except (PineconeUnavailable, ReasoningUnavailable, ValueError) as exc:
-                rag_error = str(exc)
+        if has_sufficient_evidence:
+            rag_error: str | None = None
+            recommendation: SizeRecommendation | None = None
+            retrieved: dict = {}
 
-        provider = f"pinecone_rag+{self.context.reasoner.name}"
-        if recommendation is not None:
-            recommended = recommendation.recommended_size
-            confidence = recommendation.confidence
-            summary = recommendation.reasoning_en
-            user_message = {code: getattr(recommendation, f"reasoning_{code}") for code in _LANGUAGE_CODES}
-            source = provider
-        else:
-            recommended = _deterministic_recommendation(chart, body)
-            provider = "deterministic_ease_margin_fallback"
-            source = provider
-            if recommended:
-                confidence = min(90, 70 + min(len(good_history), 4) * 4)
-                summary = (
-                    f"{recommended} is the safest match from measurements and successful "
-                    f"purchases (RAG fallback: {rag_error})."
-                )
-                user_message = {
-                    "en": summary,
-                    "hi": f"Aapke measurements aur pichhli fitting ke hisaab se {recommended} size sabse safe hai.",
-                    "bn": f"আপনার মাপ এবং আগের ফিটিং অনুযায়ী {recommended} সাইজ সবচেয়ে নিরাপদ।",
-                    "mr": f"तुमच्या मापांनुसार आणि आधीच्या फिटिंगनुसार {recommended} साइज सर्वात सुरक्षित आहे.",
-                    "gu": f"તમારા માપ અને પાછલા ફિટિંગ મુજબ {recommended} સાઈઝ સૌથી સુરક્ષિત છે.",
-                }
+            if chart:
+                try:
+                    candidate, retrieved = await self._rag_recommend(buyer, product, chart, body, history)
+                    if candidate.recommended_size not in chart:
+                        raise ValueError(f"Model recommended an out-of-chart size: {candidate.recommended_size}")
+                    recommendation = candidate
+                except (PineconeUnavailable, ReasoningUnavailable, ValueError) as exc:
+                    rag_error = str(exc)
+
+            provider = f"pinecone_rag+{self.context.reasoner.name}"
+            if recommendation is not None:
+                recommended = recommendation.recommended_size
+                confidence = recommendation.confidence
+                summary = recommendation.reasoning_en
+                user_message = {code: getattr(recommendation, f"reasoning_{code}") for code in _LANGUAGE_CODES}
+                source = "buyer_history" if len(good_history) > 0 else "measurements"
             else:
-                confidence = 30
-                summary = (
-                    "No listed size provides the required ease; ask for measurements or "
-                    f"choose another product (RAG fallback: {rag_error})."
-                )
+                recommended = _deterministic_recommendation(chart, body)
+                provider = "deterministic_ease_margin_fallback"
+                source = "measurements" if recommended else "none"
+                if recommended:
+                    confidence = min(90, 70 + min(len(good_history), 4) * 4)
+                    summary = (
+                        f"{recommended} is the safest match from measurements and successful "
+                        f"purchases (RAG fallback: {rag_error})."
+                    )
+                    user_message = {
+                        "en": summary,
+                        "hi": f"Aapke measurements aur pichhli fitting ke hisaab se {recommended} size sabse safe hai.",
+                        "bn": f"আপনার মাপ এবং আগের ফিটিং অনুযায়ী {recommended} সাইজ সবচেয়ে নিরাপদ।",
+                        "mr": f"तुमच्या मापांनुसार आणि आधीच्या फिटिंगनुसार {recommended} साइज सर्वात सुरक्षित आहे.",
+                        "gu": f"તમારા માપ અને પાછલા ફિટિંગ મુજબ {recommended} સાઈઝ સૌથી સુરક્ષિત છે.",
+                    }
+                else:
+                    confidence = 30
+                    summary = (
+                        "No listed size provides the required ease; ask for measurements or "
+                        f"choose another product (RAG fallback: {rag_error})."
+                    )
+                    user_message = {
+                        "en": summary,
+                        "hi": "Is product mein abhi safe size match nahi mila.",
+                        "bn": "এই প্রোডাক্টের জন্য এখনও কোনো নিরাপদ সাইজ মিলছে না।",
+                        "mr": "या उत्पादनासाठी अद्याप सुरक्षित साइज जुळत नाही.",
+                        "gu": "આ પ્રોડક્ટ માટે હજુ સુધી કોઈ સુરક્ષિત સાઈઝ મળી નથી.",
+                    }
+
+            actions = (
+                [AgentAction(type="select_size", label=f"Select {recommended}", payload={"size": recommended})]
+                if recommended
+                else [AgentAction(type="request_measurements", label="Confirm body measurements")]
+            )
+
+            history_evidence = [
+                {"product_id": item["product_id"], "size": item.get("size"), "fit": item.get("fit_feedback")}
+                for item in good_history[-3:]
+            ]
+
+            result = AgentResult(
+                agent=AgentName.SIZE_TRANSLATOR,
+                status=RunStatus.COMPLETED if recommended else RunStatus.NEEDS_EVIDENCE,
+                confidence=confidence,
+                summary=summary,
+                evidence=[
+                    Evidence(key="buyer_measurements_cm", value=body, source="buyer_profile"),
+                    Evidence(key="seller_size_chart", value=chart, source="verified_listing"),
+                    Evidence(key="successful_history", value=history_evidence, source="order_history"),
+                    Evidence(key="rag_context", value=retrieved, source=provider),
+                ],
+                actions=actions,
+                data={"recommended_size": recommended, "history": history_evidence, "rag_error": rag_error, "source": source},
+                user_message=user_message,
+            )
+        else:
+            # Fallback 1: product popularity
+            popularity = self.context.repository.get_product_size_popularity(product["id"])
+            if popularity is not None:
+                recommended = popularity["size"]
+                confidence = 70
+                summary = f"{recommended} is the most commonly purchased size for this product based on popularity."
                 user_message = {
-                    "en": summary,
-                    "hi": "Is product mein abhi safe size match nahi mila.",
-                    "bn": "এই প্রোডাক্টের জন্য এখনও কোনো নিরাপদ সাইজ মিলছে না।",
-                    "mr": "या उत्पादनासाठी अद्याप सुरक्षित साइज जुळत नाही.",
-                    "gu": "આ પ્રોડક્ટ માટે હજુ સુધી કોઈ સુરક્ષિત સાઈઝ મળી નથી.",
+                    "en": f"This is the most commonly purchased size ({recommended}) for this product, not a personalized fit guarantee.",
+                    "hi": f"यह इस उत्पाद के लिए सबसे अधिक खरीदा गया साइज़ ({recommended}) है, न कि व्यक्तिगत फिट की गारंटी।",
+                    "bn": f"এটি এই পণ্যের लिए সর্বাধিক কেনা আকার ({recommended}), কোনো ব্যক্তিগত ফিটের গ্যারান্টি নয়।",
+                    "mr": f"हा या उत्पादनासाठी सर्वात जास्त खरेदी केलेला आकार ({recommended}) आहे, वैयक्तिक फिटची हमी नाही.",
+                    "gu": f"આ પ્રોડક્ટ માટે સૌથી વધુ ખરીદાયેલ સાઈઝ ({recommended}) છે, કોઈ વ્યક્તિગત ફિટની ગેરંટી નથી."
                 }
-
-        actions = (
-            [AgentAction(type="select_size", label=f"Select {recommended}", payload={"size": recommended})]
-            if recommended
-            else [AgentAction(type="request_measurements", label="Confirm body measurements")]
-        )
-
-        history_evidence = [
-            {"product_id": item["product_id"], "size": item.get("size"), "fit": item.get("fit_feedback")}
-            for item in good_history[-3:]
-        ]
-
-        result = AgentResult(
-            agent=AgentName.SIZE_TRANSLATOR,
-            status=RunStatus.COMPLETED if recommended else RunStatus.NEEDS_EVIDENCE,
-            confidence=confidence,
-            summary=summary,
-            evidence=[
-                Evidence(key="buyer_measurements_cm", value=body, source="buyer_profile"),
-                Evidence(key="seller_size_chart", value=chart, source="verified_listing"),
-                Evidence(key="successful_history", value=history_evidence, source="order_history"),
-                Evidence(key="rag_context", value=retrieved, source=source),
-            ],
-            actions=actions,
-            data={"recommended_size": recommended, "history": history_evidence, "rag_error": rag_error},
-            user_message=user_message,
-        )
+                actions = [AgentAction(type="select_size", label=f"Select {recommended}", payload={"size": recommended})]
+                result = AgentResult(
+                    agent=AgentName.SIZE_TRANSLATOR,
+                    status=RunStatus.COMPLETED,
+                    confidence=confidence,
+                    summary=summary,
+                    evidence=[
+                        Evidence(key="buyer_measurements_cm", value=body, source="buyer_profile"),
+                        Evidence(key="seller_size_chart", value=chart, source="verified_listing"),
+                        Evidence(key="qualifying_purchases", value=popularity["qualifying_purchases"], source="product_popularity"),
+                    ],
+                    actions=actions,
+                    data={"recommended_size": recommended, "source": "product_popularity", "qualifying_purchases": popularity["qualifying_purchases"]},
+                    user_message=user_message,
+                )
+            else:
+                # Fallback 2: no orders -> Needs guidance
+                confidence = 30
+                summary = "इस उत्पाद के लिए अभी पर्याप्त खरीदारी इतिहास उपलब्ध नहीं है।"
+                user_message = {
+                    "hi": "इस उत्पाद के लिए अभी पर्याप्त खरीदारी इतिहास उपलब्ध नहीं है। सही साइज़ जानने के लिए विश्वास संवाद में अपना सामान्य साइज़, शरीर का प्रकार या छाती/कमर जैसे माप बताएं।",
+                    "en": "There is currently not enough purchase history for this product. Please tell Vishwas Samvad your typical size, body type, or chest/waist measurements.",
+                    "bn": "এই পণ্যের জন্য এখনও পর্যাপ্ত ক্রয়ের ইতিহাস নেই। সঠিক আকার জানতে আপনার সাধারণ আকার, শরীরের ধরন বা বুক/কোমরের পরিমাপ বলুন।",
+                    "mr": "या उत्पादनासाठी अद्याप पुरेसा खरेदी इतिहास उपलब्ध नाही. अचूक आकारासाठी विश्वास संवादमध्ये आपला सामान्य आकार, शरीराचा प्रकार किंवा छाती/कमरेचे मोजमाप सांगा.",
+                    "gu": "આ ઉત્પાદન માટે હજી પૂરતો ખરીદીનો ઇતિહાસ ઉપલબ્ધ નથી. સાચી સાઈઝ જાણવા માટે વિશ્વાસ સંવાદમાં તમારી સામાન્ય સાઈઝ, શરીરનો પ્રકાર અથવા છાતી/કમરના માપ જણાવો."
+                }
+                actions = [
+                    AgentAction(
+                        type="open_vishwas_samvad",
+                        label="विश्वास संवाद खोलें",
+                        payload={
+                            "product_id": product["id"],
+                            "suggested_message": "मेरा सही साइज़ बताने में मदद करें।",
+                            "prompts": ["normal size", "body type", "height", "measurements"]
+                        }
+                    )
+                ]
+                result = AgentResult(
+                    agent=AgentName.SIZE_TRANSLATOR,
+                    status=RunStatus.NEEDS_EVIDENCE,
+                    confidence=confidence,
+                    summary=summary,
+                    evidence=[
+                        Evidence(key="buyer_measurements_cm", value=body, source="buyer_profile"),
+                        Evidence(key="seller_size_chart", value=chart, source="verified_listing"),
+                    ],
+                    actions=actions,
+                    data={"needs_guidance": True, "recommended_size": None, "source": "no_order_fallback"},
+                    user_message=user_message,
+                )
 
         latency_ms = round((time.perf_counter() - started_at) * 1000)
         with SessionLocal() as session:
@@ -253,10 +320,10 @@ class SizeTranslatorAgent(Agent):
                 agent_name="size_translator",
                 entity_type="product",
                 entity_id=product["id"],
-                confidence=confidence,
+                confidence=result.confidence,
                 latency_ms=latency_ms,
                 input_ref=f"buyer={buyer['id']}",
-                provider=provider,
+                provider="size_translator_fallback_chain",
                 output_json=result.data,
             )
             session.commit()

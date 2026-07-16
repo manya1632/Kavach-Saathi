@@ -98,7 +98,31 @@ async def _trigger_review_workflow(container: Container, payload: dict[str, Any]
 
 
 async def _trigger_delivery_confirmation_call(container: Container, payload: dict[str, Any]) -> None:
-    await container.service.graphs.confirmation.initiate_call(payload["order_id"])
+    from kavach_saathi.config import get_settings
+    from kavach_saathi.db.base import SessionLocal
+    from kavach_saathi.db.models import Address, Order
+    from kavach_saathi.providers.twilio_integration import TwilioIntegrationClient
+
+    with SessionLocal() as session:
+        order = session.get(Order, payload["order_id"])
+        if not order or order.whatsapp_workflow_state != "awaiting_order_confirmation":
+            return
+        address = session.get(Address, order.address_id)
+        phone = (order.address_snapshot or {}).get("phone") or (address.phone if address else None)
+        if not phone:
+            raise RuntimeError("Order confirmation phone number is unavailable")
+        settings = get_settings()
+        sid = TwilioIntegrationClient(settings).send_whatsapp_content(
+            phone,
+            settings.twilio_order_confirmation_content_sid or "",
+            {"1": order.id},
+        )
+        order.whatsapp_workflow_state = "ownership_prompt_sent"
+        session.commit()
+        try:
+            get_redis().setex(f"whatsapp:outbound:{sid}", 86400, order.id)
+        except Exception:
+            pass
 
 
 def start_review_consumer(container: Container) -> threading.Thread:
@@ -120,9 +144,7 @@ def start_review_consumer(container: Container) -> threading.Thread:
 
 
 def start_order_consumer(container: Container) -> threading.Thread:
-    """Automatically invokes Agent 7 (DeliveryConfirmationAgent.initiate_call) on every
-    `order.placed` event -- a real outbound Twilio call triggered by checkout, not a
-    frontend "simulate" button (gap_report B1)."""
+    """Send the approved WhatsApp ownership template for each persisted order event."""
 
     async def handler(payload: dict[str, Any]) -> None:
         await _trigger_delivery_confirmation_call(container, payload)

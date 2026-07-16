@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 from kavach_saathi.db.base import SessionLocal
 from kavach_saathi.db.models import (
     Address,
+    ChatConversation,
+    ChatMessage,
     Order,
     OrderItem,
     OtpSession,
@@ -162,10 +164,46 @@ def _order_dict(order: Order, item: OrderItem | None) -> dict[str, Any]:
 
 
 _REVIEWER_FIRST_NAMES = [
-    "Rohit", "Priya", "Aman", "Sneha", "Vikram", "Anjali", "Rahul", "Divya", "Karan", "Pooja",
-    "Nikhil", "Shreya", "Arjun", "Neha", "Suresh", "Kavita", "Manish", "Ritu", "Deepak", "Swati",
-    "Ajay", "Preeti", "Sanjay", "Meena", "Vivek", "Anita", "Rakesh", "Sunita", "Gaurav", "Nisha",
-    "Harish", "Komal", "Sandeep", "Priyanka", "Ashok", "Rekha", "Naveen", "Simran", "Yogesh", "Alka",
+    "Rohit",
+    "Priya",
+    "Aman",
+    "Sneha",
+    "Vikram",
+    "Anjali",
+    "Rahul",
+    "Divya",
+    "Karan",
+    "Pooja",
+    "Nikhil",
+    "Shreya",
+    "Arjun",
+    "Neha",
+    "Suresh",
+    "Kavita",
+    "Manish",
+    "Ritu",
+    "Deepak",
+    "Swati",
+    "Ajay",
+    "Preeti",
+    "Sanjay",
+    "Meena",
+    "Vivek",
+    "Anita",
+    "Rakesh",
+    "Sunita",
+    "Gaurav",
+    "Nisha",
+    "Harish",
+    "Komal",
+    "Sandeep",
+    "Priyanka",
+    "Ashok",
+    "Rekha",
+    "Naveen",
+    "Simran",
+    "Yogesh",
+    "Alka",
 ]
 _REVIEWER_LAST_INITIALS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -316,6 +354,142 @@ class CommerceRepository:
                 for item in session.execute(select(OrderItem).where(OrderItem.order_id.in_(order_ids))).scalars():
                     items_by_order.setdefault(item.order_id, item)
             return [_order_dict(order, items_by_order.get(order.id)) for order in orders]
+
+    def get_product_size_popularity(self, product_id: str) -> dict[str, Any] | None:
+        import json
+
+        from kavach_saathi.db.models import Order, OrderItem, Payment, Product, ReturnRecord
+        from kavach_saathi.redis_client import get_redis
+
+        redis_client = get_redis()
+        cache_key = f"size_popularity:{product_id}"
+        try:
+            cached = redis_client.get(cache_key)
+            if cached:
+                cached_result = json.loads(cached)
+                with self._session() as cache_session:
+                    current_product = cache_session.get(Product, product_id)
+                    current_created_at = (
+                        current_product.created_at.isoformat()
+                        if current_product and current_product.created_at
+                        else None
+                    )
+                if cached_result.get("_product_created_at") == current_created_at:
+                    return None if cached_result.get("_no_history") else cached_result
+                redis_client.delete(cache_key)
+        except Exception:
+            pass
+
+        # If cache miss, execute query
+        from kavach_saathi.order_status import OrderStatus
+
+        with self._session() as session:
+            qualifying_statuses = {
+                OrderStatus.CONFIRMED,
+                OrderStatus.DELIVERY_SCHEDULED,
+                OrderStatus.PACKED,
+                OrderStatus.SHIPPED,
+                OrderStatus.OUT_FOR_DELIVERY,
+                OrderStatus.DELIVERY_VERIFICATION_PENDING,
+                OrderStatus.DELIVERED,
+                OrderStatus.CLOSED,
+                OrderStatus.RETURN_INITIATED,
+                OrderStatus.RETURN_UNDER_REVIEW,
+                OrderStatus.RETURN_APPROVED,
+                OrderStatus.RETURN_REJECTED,
+                OrderStatus.MANUAL_INSPECTION,
+            }
+            stmt = (
+                select(OrderItem.size, Order.status, Order.id)
+                .join(Order, OrderItem.order_id == Order.id)
+                .outerjoin(Payment, Payment.order_id == Order.id)
+                .where(
+                    OrderItem.product_id == product_id,
+                    Order.status.in_(qualifying_statuses),
+                    ((Order.payment_mode != "prepaid") | (Payment.status == "captured")),
+                    ~Order.id.like("O-TEST-%"),
+                    ~Order.id.like("O-CHAR-%"),
+                )
+            )
+            rows = session.execute(stmt).all()
+            product = session.get(Product, product_id)
+            product_created_at = product.created_at.isoformat() if product and product.created_at else None
+            if not rows:
+                try:
+                    redis_client.setex(
+                        cache_key,
+                        300,
+                        json.dumps({"_no_history": True, "_product_created_at": product_created_at}),
+                    )
+                except Exception:
+                    pass
+                return None
+
+            return_stmt = select(ReturnRecord.order_id, ReturnRecord.reason).where(
+                ReturnRecord.product_id == product_id
+            )
+            returns = {r_id: reason for r_id, reason in session.execute(return_stmt).all()}
+
+            from collections import defaultdict
+
+            size_stats = defaultdict(
+                lambda: {"total_count": 0, "confirmed_later_count": 0, "delivered_count": 0, "size_returns_count": 0}
+            )
+
+            delivered_statuses = {
+                OrderStatus.DELIVERED,
+                OrderStatus.CLOSED,
+                OrderStatus.RETURN_INITIATED,
+                OrderStatus.RETURN_UNDER_REVIEW,
+                OrderStatus.RETURN_APPROVED,
+                OrderStatus.RETURN_REJECTED,
+                OrderStatus.MANUAL_INSPECTION,
+            }
+
+            for size, status, order_id in rows:
+                if not size:
+                    continue
+                size_stats[size]["total_count"] += 1
+                size_stats[size]["confirmed_later_count"] += 1
+                if status in delivered_statuses:
+                    size_stats[size]["delivered_count"] += 1
+                if order_id in returns:
+                    reason = (returns[order_id] or "").lower()
+                    if any(w in reason for w in ("size", "fit", "tight", "loose", "small", "large")):
+                        size_stats[size]["size_returns_count"] += 1
+
+            if not size_stats:
+                return None
+
+            size_chart = product.size_chart if product and product.size_chart else {}
+            size_chart_order = list(size_chart.keys())
+
+            def get_sort_key(size):
+                stats = size_stats[size]
+                try:
+                    chart_index = size_chart_order.index(size)
+                except ValueError:
+                    chart_index = 9999
+                return (stats["total_count"], stats["delivered_count"], -stats["size_returns_count"], -chart_index)
+
+            sorted_sizes = sorted(size_stats.keys(), key=get_sort_key, reverse=True)
+            best_size = sorted_sizes[0]
+            best_stats = size_stats[best_size]
+
+            result = {
+                "size": best_size,
+                "qualifying_purchases": best_stats["total_count"],
+                "confirmed_later_purchases": best_stats["confirmed_later_count"],
+                "delivered_purchases": best_stats["delivered_count"],
+                "size_returns": best_stats["size_returns_count"],
+                "_product_created_at": product_created_at,
+            }
+
+            try:
+                redis_client.setex(cache_key, 3600, json.dumps(result))
+            except Exception:
+                pass
+            return result
 
     def products_in_category(self, category: str, *, exclude_id: str, limit: int = 8) -> list[dict[str, Any]]:
         with self._session() as session:
@@ -487,6 +661,18 @@ class CommerceRepository:
                 product.stolen_photo_flag = flagged
                 session.commit()
 
+    def invalidate_cache_for_order(self, session: Session, order_id: str) -> None:
+        try:
+            from kavach_saathi.db.models import OrderItem
+            from kavach_saathi.redis_client import get_redis
+
+            items = session.execute(select(OrderItem).where(OrderItem.order_id == order_id)).scalars().all()
+            redis_client = get_redis()
+            for item in items:
+                redis_client.delete(f"size_popularity:{item.product_id}")
+        except Exception:
+            pass
+
     def update_order_status(self, order_id: str, status: str, *, actor: str = "agent") -> None:
         from kavach_saathi.db.models import OrderStatusHistory
 
@@ -496,6 +682,7 @@ class CommerceRepository:
                 return
             order.status = status
             session.add(OrderStatusHistory(order_id=order_id, status=status, actor=actor))
+            self.invalidate_cache_for_order(session, order_id)
             session.commit()
 
     def save_verified_address(
@@ -518,6 +705,9 @@ class CommerceRepository:
         country: str | None = "India",
         address_type: str | None = "Home",
         phone_verified: bool = False,
+        phone_lookup_validated: bool = False,
+        lookup_status: str | None = None,
+        lookup_data: dict | None = None,
         validation_status: str = "valid",
         validation_explanation: str | None = None,
         is_default: bool = True,
@@ -554,6 +744,9 @@ class CommerceRepository:
                     country=country or "India",
                     address_type=address_type or "Home",
                     phone_verified=phone_verified,
+                    phone_lookup_validated=phone_lookup_validated,
+                    lookup_status=lookup_status,
+                    lookup_data=lookup_data,
                     validation_status=validation_status,
                     validation_explanation=validation_explanation,
                 )
@@ -586,22 +779,29 @@ class CommerceRepository:
         """
         import uuid
         from datetime import UTC, datetime, timedelta
+
+        from kavach_saathi.db.models import OrderItem, OrderStatusHistory
         from kavach_saathi.order_status import OrderStatus
-        from kavach_saathi.db.models import OrderStatusHistory, OrderItem
 
         with self._session() as session:
-            record = session.execute(
-                select(ReturnRecord).where(ReturnRecord.order_id == order_id, ReturnRecord.product_id == product_id)
-            ).scalars().first()
+            record = (
+                session.execute(
+                    select(ReturnRecord).where(ReturnRecord.order_id == order_id, ReturnRecord.product_id == product_id)
+                )
+                .scalars()
+                .first()
+            )
             if record is None:
-                record = ReturnRecord(id=f"RT-{uuid.uuid4().hex[:10].upper()}", order_id=order_id, product_id=product_id)
+                record = ReturnRecord(
+                    id=f"RT-{uuid.uuid4().hex[:10].upper()}", order_id=order_id, product_id=product_id
+                )
                 session.add(record)
             record.buyer_id = buyer_id
             record.video_url = video_key
             record.confidence_score = confidence_score
-            
+
             order = session.get(Order, order_id)
-            
+
             # Use finalize_return_record_decision logic
             record.decision = decision
             record.decided_at = datetime.now(UTC)
@@ -613,8 +813,10 @@ class CommerceRepository:
                 record.status = "pickup_scheduled"
                 if order:
                     order.status = OrderStatus.RETURN_APPROVED
-                    session.add(OrderStatusHistory(order_id=order.id, status=OrderStatus.RETURN_APPROVED, actor="system"))
-                
+                    session.add(
+                        OrderStatusHistory(order_id=order.id, status=OrderStatus.RETURN_APPROVED, actor="system")
+                    )
+
                 record.pickup_date = datetime.now(UTC) + timedelta(days=3)
                 record.pickup_status = "scheduled"
 
@@ -655,10 +857,14 @@ class CommerceRepository:
                                 price_at_purchase=0.0,
                             )
                             session.add(rep_item)
-                        
+
                         record.replacement_order_id = replacement_id
-                        session.add(OrderStatusHistory(order_id=replacement_id, status=OrderStatus.PLACED, actor="system"))
-                        session.add(OrderStatusHistory(order_id=replacement_id, status=OrderStatus.CONFIRMED, actor="system"))
+                        session.add(
+                            OrderStatusHistory(order_id=replacement_id, status=OrderStatus.PLACED, actor="system")
+                        )
+                        session.add(
+                            OrderStatusHistory(order_id=replacement_id, status=OrderStatus.CONFIRMED, actor="system")
+                        )
                         session.flush()
 
                 elif record.return_type == "refund":
@@ -672,28 +878,33 @@ class CommerceRepository:
                 record.status = "manual_inspection"
                 if order:
                     order.status = OrderStatus.MANUAL_INSPECTION
-                    session.add(OrderStatusHistory(order_id=order.id, status=OrderStatus.MANUAL_INSPECTION, actor="system"))
-                    
+                    session.add(
+                        OrderStatusHistory(order_id=order.id, status=OrderStatus.MANUAL_INSPECTION, actor="system")
+                    )
+
             elif decision == "reject":
                 record.status = "rejected"
                 if order:
                     order.status = OrderStatus.RETURN_REJECTED
-                    session.add(OrderStatusHistory(order_id=order.id, status=OrderStatus.RETURN_REJECTED, actor="system"))
+                    session.add(
+                        OrderStatusHistory(order_id=order.id, status=OrderStatus.RETURN_REJECTED, actor="system")
+                    )
 
             elif decision == "request_more_evidence":
                 record.status = "needs_evidence"
                 if order:
                     order.status = OrderStatus.RETURN_UNDER_REVIEW
-                    session.add(OrderStatusHistory(order_id=order.id, status=OrderStatus.RETURN_UNDER_REVIEW, actor="system"))
+                    session.add(
+                        OrderStatusHistory(order_id=order.id, status=OrderStatus.RETURN_UNDER_REVIEW, actor="system")
+                    )
 
             timeline = list(record.status_timeline or [])
-            timeline.append({
-                "status": record.status,
-                "timestamp": datetime.now(UTC).isoformat(),
-                "notes": f"Decision: {decision}"
-            })
+            timeline.append(
+                {"status": record.status, "timestamp": datetime.now(UTC).isoformat(), "notes": f"Decision: {decision}"}
+            )
             record.status_timeline = timeline
-            
+
+            self.invalidate_cache_for_order(session, order_id)
             session.commit()
             return record.id
 
@@ -858,4 +1069,171 @@ class CommerceRepository:
             if record:
                 record.verified = True
                 record.verified_at = datetime.now(UTC)
+                session.commit()
+
+    def get_or_create_active_chat(
+        self,
+        user_id: str,
+        *,
+        page_route: str | None = None,
+        page_type: str | None = None,
+        product_id: str | None = None,
+        order_id: str | None = None,
+        return_id: str | None = None,
+    ) -> ChatConversation:
+        import uuid
+
+        with self._session() as session:
+            # Find active chat
+            active = (
+                session.execute(
+                    select(ChatConversation).where(
+                        ChatConversation.user_id == user_id, ChatConversation.status == "active"
+                    )
+                )
+                .scalars()
+                .first()
+            )
+
+            if not active:
+                chat_id = f"CHAT-{uuid.uuid4().hex[:12].upper()}"
+                active = ChatConversation(
+                    id=chat_id,
+                    user_id=user_id,
+                    status="active",
+                    page_route=page_route,
+                    page_type=page_type,
+                    product_id=product_id,
+                    order_id=order_id,
+                    return_id=return_id,
+                )
+                session.add(active)
+                session.commit()
+                # Reload to get it bound to current thread or return it
+                active = session.get(ChatConversation, chat_id)
+            else:
+                # Update context if provided
+                if page_route is not None:
+                    active.page_route = page_route
+                if page_type is not None:
+                    active.page_type = page_type
+                if product_id is not None:
+                    active.product_id = product_id
+                if order_id is not None:
+                    active.order_id = order_id
+                if return_id is not None:
+                    active.return_id = return_id
+                session.commit()
+                active = session.get(ChatConversation, active.id)
+
+            # Detach/copy attributes to prevent session issues after return
+            return {
+                "id": active.id,
+                "user_id": active.user_id,
+                "status": active.status,
+                "page_route": active.page_route,
+                "page_type": active.page_type,
+                "product_id": active.product_id,
+                "order_id": active.order_id,
+                "return_id": active.return_id,
+                "created_at": active.created_at.isoformat() if active.created_at else None,
+            }
+
+    def list_active_chats_for_user(self, user_id: str) -> list[dict]:
+        with self._session() as session:
+            conversations = (
+                session.execute(
+                    select(ChatConversation)
+                    .where(ChatConversation.user_id == user_id)
+                    .order_by(ChatConversation.created_at.desc())
+                )
+                .scalars()
+                .all()
+            )
+            return [
+                {
+                    "id": c.id,
+                    "user_id": c.user_id,
+                    "status": c.status,
+                    "page_route": c.page_route,
+                    "page_type": c.page_type,
+                    "product_id": c.product_id,
+                    "order_id": c.order_id,
+                    "return_id": c.return_id,
+                    "created_at": c.created_at.isoformat() if c.created_at else None,
+                }
+                for c in conversations
+            ]
+
+    def get_chat_for_user(self, conversation_id: str, user_id: str) -> dict | None:
+        with self._session() as session:
+            conversation = (
+                session.execute(
+                    select(ChatConversation).where(
+                        ChatConversation.id == conversation_id,
+                        ChatConversation.user_id == user_id,
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if conversation is None:
+                return None
+            return {
+                "id": conversation.id,
+                "user_id": conversation.user_id,
+                "status": conversation.status,
+                "page_route": conversation.page_route,
+                "page_type": conversation.page_type,
+                "product_id": conversation.product_id,
+                "order_id": conversation.order_id,
+                "return_id": conversation.return_id,
+            }
+
+    def list_chat_messages(self, conversation_id: str) -> list[dict]:
+        with self._session() as session:
+            messages = (
+                session.execute(
+                    select(ChatMessage)
+                    .where(ChatMessage.conversation_id == conversation_id)
+                    .order_by(ChatMessage.created_at.asc())
+                )
+                .scalars()
+                .all()
+            )
+            return [
+                {
+                    "id": m.id,
+                    "conversation_id": m.conversation_id,
+                    "sender": m.sender,
+                    "content": m.content,
+                    "metadata_json": m.metadata_json,
+                    "created_at": m.created_at.isoformat() if m.created_at else None,
+                }
+                for m in messages
+            ]
+
+    def add_chat_message(
+        self, conversation_id: str, sender: str, content: str, metadata_json: dict | None = None
+    ) -> dict:
+        with self._session() as session:
+            msg = ChatMessage(
+                conversation_id=conversation_id, sender=sender, content=content, metadata_json=metadata_json
+            )
+            session.add(msg)
+            session.commit()
+            return {
+                "id": msg.id,
+                "conversation_id": msg.conversation_id,
+                "sender": msg.sender,
+                "content": msg.content,
+                "metadata_json": msg.metadata_json,
+                "created_at": msg.created_at.isoformat() if msg.created_at else None,
+            }
+
+    def archive_chat_conversation(self, conversation_id: str) -> None:
+        with self._session() as session:
+            conv = session.get(ChatConversation, conversation_id)
+            if conv:
+                conv.status = "archived"
                 session.commit()

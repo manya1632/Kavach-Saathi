@@ -16,7 +16,7 @@ from kavach_saathi.config import Settings, get_settings
 from kavach_saathi.db.base import get_session
 from kavach_saathi.db.models import RefreshToken, SellerProfile, User
 
-Role = Literal["buyer", "seller", "admin"]
+Role = Literal["buyer", "seller", "admin", "delivery_boy"]
 
 
 class AuthError(HTTPException):
@@ -85,9 +85,13 @@ def decode_token(token: str, settings: Settings, *, expected_type: str = "access
 def rotate_refresh_token(raw_token: str, session: Session, settings: Settings) -> tuple[User, str, str]:
     """Verify + revoke the presented refresh token and issue a fresh access/refresh pair."""
     token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-    record = session.execute(
-        select(RefreshToken).where(RefreshToken.token_hash == token_hash, RefreshToken.revoked.is_(False))
-    ).scalars().first()
+    record = (
+        session.execute(
+            select(RefreshToken).where(RefreshToken.token_hash == token_hash, RefreshToken.revoked.is_(False))
+        )
+        .scalars()
+        .first()
+    )
     if not record or record.expires_at < datetime.now(UTC):
         raise AuthError("Refresh token is invalid or expired")
     user = session.get(User, record.user_id)
@@ -121,7 +125,7 @@ def signup_user(
     if existing:
         raise HTTPException(status_code=409, detail="An account with this email or phone already exists")
 
-    prefix = {"buyer": "B", "seller": "S", "admin": "A"}[role]
+    prefix = {"buyer": "B", "seller": "S", "admin": "A", "delivery_boy": "D"}[role]
     user = User(
         id=_new_id(prefix),
         role=role,
@@ -147,9 +151,9 @@ def signup_user(
 
 
 def authenticate_user(*, identifier: str, password: str, session: Session) -> User:
-    user = session.execute(
-        select(User).where((User.email == identifier) | (User.phone == identifier))
-    ).scalars().first()
+    user = (
+        session.execute(select(User).where((User.email == identifier) | (User.phone == identifier))).scalars().first()
+    )
     if not user or not verify_password(password, user.password_hash):
         raise AuthError("Invalid credentials")
     return user

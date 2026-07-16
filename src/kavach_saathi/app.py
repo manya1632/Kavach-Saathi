@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import threading
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID, uuid4
@@ -13,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from mangum import Mangum
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from kavach_saathi.admin_api import router as admin_router
@@ -29,11 +31,14 @@ from kavach_saathi.commerce_api import router as commerce_router
 from kavach_saathi.config import Settings, get_settings
 from kavach_saathi.container import Container, get_container
 from kavach_saathi.db.base import get_session
-from kavach_saathi.db.models import User
+from kavach_saathi.db.models import Order, OrderItem, OrderStatusHistory, Payment, ProductVariant, User
+from kavach_saathi.delivery_api import router as delivery_router
 from kavach_saathi.events import start_order_consumer, start_review_consumer
 from kavach_saathi.models import (
     AddressVerifyRequest,
     AuthUser,
+    ChatConversationCreate,
+    ChatMessageSend,
     ConfirmationRequest,
     HealthResponse,
     ListingAnalyzeRequest,
@@ -53,6 +58,9 @@ from kavach_saathi.models import (
     WorkflowType,
 )
 from kavach_saathi.orchestration.service import RunNotFoundError
+from kavach_saathi.order_status import OrderStatus
+from kavach_saathi.providers.twilio_integration import TwilioIntegrationClient
+from kavach_saathi.redis_client import get_redis
 from kavach_saathi.repository import DataNotFoundError
 from kavach_saathi.seller_api import router as seller_router
 from kavach_saathi.specs_api import router as specs_router
@@ -69,6 +77,7 @@ STOREFRONT_CATEGORIES = [
     "Jewellery & Accessories",
     "Bags & Footwear",
 ]
+
 
 def _run_workflow_in_background(coro_factory) -> None:
     """Execute an agent workflow coroutine on a dedicated thread with its own event
@@ -223,6 +232,7 @@ def create_app() -> FastAPI:
     app.include_router(specs_router, prefix=prefix, tags=["spec-enforcer"])
     app.include_router(commerce_router, prefix=prefix, tags=["commerce"])
     app.include_router(admin_router, prefix=prefix, tags=["admin"])
+    app.include_router(delivery_router, prefix=f"{prefix}/delivery", tags=["delivery"])
 
     @app.on_event("startup")
     async def start_event_consumers() -> None:
@@ -239,6 +249,7 @@ def create_app() -> FastAPI:
             import asyncio
 
             from kavach_saathi.model_registry import warm_up_models
+
             asyncio.create_task(asyncio.to_thread(warm_up_models, container.settings))
 
     def storefront_product(
@@ -291,10 +302,15 @@ def create_app() -> FastAPI:
                     "verified": image["verified"],
                 }
                 for image in (container.repository.product_images(product["id"]) if include_gallery else [])
-            ] or ([
-                {"angle": angle, "url": f"/mock-assets/{media_path}", "verified": False}
-                for angle in ("front", "back", "left", "right")
-            ] if include_gallery else []),
+            ]
+            or (
+                [
+                    {"angle": angle, "url": f"/mock-assets/{media_path}", "verified": False}
+                    for angle in ("front", "back", "left", "right")
+                ]
+                if include_gallery
+                else []
+            ),
         }
 
     @app.get(f"{prefix}/storefront/products")
@@ -310,6 +326,7 @@ def create_app() -> FastAPI:
 
         # Sort by activation_timestamp descending
         from datetime import UTC, datetime
+
         min_dt = datetime.min.replace(tzinfo=UTC)
 
         def get_activation_time(p):
@@ -356,11 +373,7 @@ def create_app() -> FastAPI:
                 for product in products[:limit]
             ],
             "total": len(products),
-            "categories": [
-                item
-                for item in STOREFRONT_CATEGORIES
-                if item in active_categories
-            ],
+            "categories": [item for item in STOREFRONT_CATEGORIES if item in active_categories],
         }
 
     @app.get(f"{prefix}/storefront/products/{{product_id}}")
@@ -378,6 +391,7 @@ def create_app() -> FastAPI:
         with comparable price range (+-20%) and sorted by spec overlap and activation_timestamp DESC."""
         from datetime import UTC as _UTC
         from datetime import datetime
+
         product = container.repository.get("products", product_id)
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
@@ -397,12 +411,12 @@ def create_app() -> FastAPI:
                 continue
             if p.get("category") != product_category:
                 continue
-            
+
             price = p.get("price", 0.0)
             # Price must be within 20% range
             if abs(price - product_price) > 0.2 * product_price:
                 continue
-                
+
             candidates.append(p)
 
         def get_similarity_score(p):
@@ -428,7 +442,6 @@ def create_app() -> FastAPI:
 
         candidates.sort(key=lambda p: (get_similarity_score(p), _activation_ts(p)), reverse=True)
         return {"items": [storefront_product(p, container) for p in candidates[:8]]}
-
 
     async def run(
         workflow: WorkflowType,
@@ -472,9 +485,7 @@ def create_app() -> FastAPI:
                 # must never block the request -- callers poll GET /runs/{run_id} or the
                 # SSE event stream, per the plan's API design ("frontend must show
                 # honest loading/progress states, never fake instant AI magic").
-                _run_workflow_in_background(
-                    lambda: container.service.resume(record.run_id, order_id=order_id)
-                )
+                _run_workflow_in_background(lambda: container.service.resume(record.run_id, order_id=order_id))
             return container.service.envelope(record)
         record = await container.service.execute(
             workflow,
@@ -492,6 +503,28 @@ def create_app() -> FastAPI:
     async def recommend_size(payload: SizeRecommendRequest, container: Container = Depends(get_container)):
         return await run(WorkflowType.SIZE, payload, container)
 
+    @app.get(f"{prefix}/products/{{product_id}}/popular-size")
+    async def product_popular_size(product_id: str, container: Container = Depends(get_container)):
+        container.repository.get("products", product_id)
+        result = container.repository.get_product_size_popularity(product_id)
+        if result is None:
+            return {
+                "product_id": product_id,
+                "needs_guidance": True,
+                "selected_size": None,
+                "source": "no_order_fallback",
+                "action": "open_vishwas_samvad",
+            }
+        return {
+            "product_id": product_id,
+            "needs_guidance": False,
+            "selected_size": result["size"],
+            "qualifying_purchases": result["qualifying_purchases"],
+            "delivered_purchases": result["delivered_purchases"],
+            "size_related_returns": result["size_returns"],
+            "source": "product_popularity",
+        }
+
     @app.post(f"{prefix}/reviews/analyze", response_model=RunEnvelope)
     async def analyze_review(payload: ReviewAnalyzeRequest, container: Container = Depends(get_container)):
         return await run(WorkflowType.REVIEW, payload, container)
@@ -503,6 +536,146 @@ def create_app() -> FastAPI:
     @app.post(f"{prefix}/voice/query", response_model=RunEnvelope)
     async def voice_query(payload: VoiceQueryRequest, container: Container = Depends(get_container)):
         return await run(WorkflowType.VOICE, payload, container)
+
+    @app.post(f"{prefix}/chat/conversations", status_code=201)
+    async def create_chat_conversation(
+        payload: ChatConversationCreate,
+        user: Annotated[User, Depends(get_current_user)],
+        container: Container = Depends(get_container),
+    ):
+        if user.role != "buyer":
+            raise HTTPException(status_code=403, detail="Only buyers can access chat")
+        allowed_page_types = {
+            "home",
+            "product",
+            "cart",
+            "checkout",
+            "addresses",
+            "orders",
+            "returns",
+            "wishlist",
+            "support",
+        }
+        if payload.page_type and payload.page_type not in allowed_page_types:
+            raise HTTPException(status_code=400, detail="Unsupported page context")
+        if payload.product_id:
+            try:
+                container.repository.get("products", payload.product_id)
+            except DataNotFoundError as exc:
+                raise HTTPException(status_code=404, detail="Product not found") from exc
+        if payload.order_id:
+            order = container.repository.get("orders", payload.order_id)
+            if order["buyer_id"] != user.id:
+                raise HTTPException(status_code=403, detail="Order context is not authorized")
+        if payload.return_id:
+            return_record = container.repository.get("returns", payload.return_id)
+            if return_record.get("buyer_id") != user.id:
+                raise HTTPException(status_code=403, detail="Return context is not authorized")
+        return container.repository.get_or_create_active_chat(
+            user.id,
+            page_route=payload.page_route,
+            page_type=payload.page_type,
+            product_id=payload.product_id,
+            order_id=payload.order_id,
+            return_id=payload.return_id,
+        )
+
+    @app.get(f"{prefix}/chat/conversations")
+    async def list_chat_conversations(
+        user: Annotated[User, Depends(get_current_user)], container: Container = Depends(get_container)
+    ):
+        if user.role != "buyer":
+            raise HTTPException(status_code=403, detail="Only buyers can access chat")
+        return container.repository.list_active_chats_for_user(user.id)
+
+    @app.get(f"{prefix}/chat/conversations/{{conversation_id}}/messages")
+    async def list_chat_messages(
+        conversation_id: str,
+        user: Annotated[User, Depends(get_current_user)],
+        container: Container = Depends(get_container),
+    ):
+        if user.role != "buyer":
+            raise HTTPException(status_code=403, detail="Only buyers can access chat")
+        conversations = container.repository.list_active_chats_for_user(user.id)
+        if not any(c["id"] == conversation_id for c in conversations):
+            raise HTTPException(status_code=403, detail="Access denied to this conversation")
+        return container.repository.list_chat_messages(conversation_id)
+
+    @app.post(f"{prefix}/chat/conversations/{{conversation_id}}/archive")
+    async def archive_chat_conversation(
+        conversation_id: str,
+        user: Annotated[User, Depends(get_current_user)],
+        container: Container = Depends(get_container),
+    ):
+        if user.role != "buyer":
+            raise HTTPException(status_code=403, detail="Only buyers can access chat")
+        conversations = container.repository.list_active_chats_for_user(user.id)
+        if not any(c["id"] == conversation_id for c in conversations):
+            raise HTTPException(status_code=403, detail="Access denied to this conversation")
+        container.repository.archive_chat_conversation(conversation_id)
+        return {"status": "archived"}
+
+    @app.post(f"{prefix}/chat/messages")
+    async def send_chat_message(
+        payload: ChatMessageSend,
+        user: Annotated[User, Depends(get_current_user)],
+        container: Container = Depends(get_container),
+    ):
+        if user.role != "buyer":
+            raise HTTPException(status_code=403, detail="Only buyers can access chat")
+        conversation = container.repository.get_chat_for_user(payload.conversation_id, user.id)
+        if not conversation or conversation["status"] != "active":
+            raise HTTPException(status_code=403, detail="Access denied to this conversation")
+
+        if payload.idempotency_key:
+            try:
+                redis = get_redis()
+                accepted = redis.set(
+                    f"chat:submit:{user.id}:{payload.idempotency_key}",
+                    "1",
+                    nx=True,
+                    ex=120,
+                )
+                if not accepted:
+                    raise HTTPException(status_code=409, detail="This message is already being processed")
+            except HTTPException:
+                raise
+            except Exception:
+                pass
+
+        user_msg = container.repository.add_chat_message(
+            payload.conversation_id,
+            sender="user",
+            content=payload.text,
+            metadata_json={"audio_key": payload.audio_key, "language": payload.language},
+        )
+
+        voice_req = VoiceQueryRequest(
+            buyer_id=user.id,
+            product_id=conversation.get("product_id") or "",
+            compare_product_ids=[],
+            text=payload.text,
+            audio_key=payload.audio_key,
+            language=payload.language,
+            page_route=conversation.get("page_route"),
+            page_type=conversation.get("page_type"),
+            order_id=conversation.get("order_id"),
+            return_id=conversation.get("return_id"),
+            idempotency_key=payload.idempotency_key,
+        )
+
+        run_record = await container.service.execute(WorkflowType.VOICE, voice_req.model_dump(mode="json"))
+        res = run_record.results.get("voice_qa")
+        if not res:
+            raise HTTPException(status_code=500, detail="Vishwas Samvad chat reasoning failed")
+
+        answer_text = res.user_message.get(payload.language, res.user_message["en"])
+
+        assistant_msg = container.repository.add_chat_message(
+            payload.conversation_id, sender="assistant", content=answer_text, metadata_json=res.model_dump(mode="json")
+        )
+
+        return {"user_message": user_msg, "assistant_message": assistant_msg}
 
     @app.post(f"{prefix}/address/verify", response_model=RunEnvelope)
     async def verify_address(payload: AddressVerifyRequest, container: Container = Depends(get_container)):
@@ -603,6 +776,120 @@ def create_app() -> FastAPI:
         agent = container.service.graphs.confirmation
         _run_workflow_in_background(lambda: agent.handle_call_status(order_id, call_status))
         return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @app.post(f"{prefix}/twilio/whatsapp/{{order_id}}")
+    async def twilio_whatsapp_webhook(
+        order_id: str,
+        request: Request,
+        cfg: Settings = Depends(get_settings),
+        session: Session = Depends(get_session),
+    ):
+        from twilio.request_validator import RequestValidator
+
+        form_data = await request.form()
+        signature = request.headers.get("X-Twilio-Signature", "")
+        if cfg.twilio_auth_token:
+            callback_url = (
+                f"{cfg.public_base_url.rstrip('/')}{request.url.path}"
+                if cfg.public_base_url
+                else str(request.url)
+            )
+            params = {key: value for key, value in form_data.items()}
+            if not signature or not RequestValidator(cfg.twilio_auth_token).validate(
+                callback_url,
+                params,
+                signature,
+            ):
+                raise HTTPException(status_code=403, detail="Invalid Twilio signature")
+
+        provider_sid = str(form_data.get("MessageSid", "")).strip()
+        action_id = str(form_data.get("ButtonPayload", "")).strip()
+        if not provider_sid or not action_id:
+            raise HTTPException(status_code=400, detail="A signed quick-reply ID and MessageSid are required")
+        try:
+            if not get_redis().set(f"twilio:webhook:{provider_sid}", "processing", nx=True, ex=604800):
+                return Response(content='<?xml version="1.0"?><Response/>', media_type="text/xml")
+        except Exception:
+            pass
+
+        order = session.get(Order, order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        provider = TwilioIntegrationClient(cfg)
+        phone = (order.address_snapshot or {}).get("phone")
+        today = order.created_at.date() if order.created_at else datetime.now(UTC).date()
+
+        if action_id == "order_confirm_yes" and order.status == OrderStatus.AWAITING_BUYER_CONFIRMATION:
+            order.status = OrderStatus.CONFIRMED
+            order.whatsapp_workflow_state = "awaiting_delivery_date_confirmation"
+            if order.promised_delivery_date is None:
+                offset = 3 + (int.from_bytes(order.id.encode("utf-8"), "little") % 2)
+                order.promised_delivery_date = datetime.combine(today + timedelta(days=offset), datetime.min.time())
+            session.add(OrderStatusHistory(order_id=order.id, status=OrderStatus.CONFIRMED, actor="buyer"))
+            if phone and cfg.twilio_delivery_date_content_sid:
+                provider.send_whatsapp_content(
+                    phone,
+                    cfg.twilio_delivery_date_content_sid,
+                    {"1": order.id, "2": order.promised_delivery_date.date().isoformat()},
+                )
+        elif action_id == "order_confirm_no" and order.status == OrderStatus.AWAITING_BUYER_CONFIRMATION:
+            order.whatsapp_workflow_state = "awaiting_cancellation_confirmation"
+            if phone and cfg.twilio_cancellation_content_sid:
+                provider.send_whatsapp_content(phone, cfg.twilio_cancellation_content_sid, {"1": order.id})
+        elif (
+            action_id == "delivery_date_yes"
+            and order.whatsapp_workflow_state == "awaiting_delivery_date_confirmation"
+        ):
+            order.status = OrderStatus.DELIVERY_SCHEDULED
+            order.whatsapp_workflow_state = "delivery_scheduled"
+            session.add(OrderStatusHistory(order_id=order.id, status=OrderStatus.DELIVERY_SCHEDULED, actor="buyer"))
+        elif (
+            action_id == "delivery_date_reschedule"
+            and order.whatsapp_workflow_state == "awaiting_delivery_date_confirmation"
+        ):
+            order.whatsapp_workflow_state = "awaiting_reschedule_choice"
+            if phone and cfg.twilio_reschedule_content_sid:
+                proposed = order.promised_delivery_date.date()
+                provider.send_whatsapp_content(
+                    phone,
+                    cfg.twilio_reschedule_content_sid,
+                    {
+                        "1": order.id,
+                        "2": (proposed + timedelta(days=1)).isoformat(),
+                        "3": (proposed + timedelta(days=2)).isoformat(),
+                    },
+                )
+        elif (
+            action_id in {"reschedule_plus_1", "reschedule_plus_2"}
+            and order.whatsapp_workflow_state == "awaiting_reschedule_choice"
+        ):
+            days = 1 if action_id.endswith("1") else 2
+            order.promised_delivery_date += timedelta(days=days)
+            order.rescheduled_count += 1
+            order.status = OrderStatus.DELIVERY_SCHEDULED
+            order.whatsapp_workflow_state = "delivery_scheduled"
+            session.add(OrderStatusHistory(order_id=order.id, status=OrderStatus.DELIVERY_SCHEDULED, actor="buyer"))
+        elif action_id == "keep_order" and order.whatsapp_workflow_state == "awaiting_cancellation_confirmation":
+            order.whatsapp_workflow_state = "awaiting_order_confirmation"
+        elif action_id in {"cancel_order", "delivery_date_cancel", "reschedule_cancel"}:
+            order.status = OrderStatus.CANCELLED
+            order.whatsapp_workflow_state = "cancelled"
+            session.add(OrderStatusHistory(order_id=order.id, status=OrderStatus.CANCELLED, actor="buyer"))
+            if order.stock_decremented:
+                items = session.execute(select(OrderItem).where(OrderItem.order_id == order.id)).scalars().all()
+                for item in items:
+                    variant = session.get(ProductVariant, item.product_variant_id)
+                    if variant:
+                        variant.stock_qty += item.qty
+                order.stock_decremented = False
+            payment = session.execute(select(Payment).where(Payment.order_id == order.id)).scalars().first()
+            if payment and payment.status == "captured":
+                payment.status = "refund_pending"
+        else:
+            raise HTTPException(status_code=409, detail="Stale or invalid WhatsApp action")
+
+        session.commit()
+        return Response(content='<?xml version="1.0"?><Response/>', media_type="text/xml")
 
     @app.put(f"{prefix}/mock-uploads/{{object_key:path}}", status_code=status.HTTP_204_NO_CONTENT)
     async def mock_upload(

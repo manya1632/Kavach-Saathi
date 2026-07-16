@@ -21,15 +21,21 @@ class OrderStatus(StrEnum):
     CLOSED = "CLOSED"
     CANCELLED = "CANCELLED"
     RTO = "RTO"
+    AWAITING_BUYER_CONFIRMATION = "AWAITING_BUYER_CONFIRMATION"
+    DELIVERY_SCHEDULED = "DELIVERY_SCHEDULED"
+    DELIVERY_VERIFICATION_PENDING = "DELIVERY_VERIFICATION_PENDING"
 
 
 ALLOWED_TRANSITIONS: dict[OrderStatus, set[OrderStatus]] = {
     OrderStatus.CART: {OrderStatus.PLACED, OrderStatus.CANCELLED},
-    OrderStatus.PLACED: {OrderStatus.CONFIRMED, OrderStatus.CANCELLED, OrderStatus.RTO},
-    OrderStatus.CONFIRMED: {OrderStatus.PACKED, OrderStatus.CANCELLED},
+    OrderStatus.PLACED: {OrderStatus.AWAITING_BUYER_CONFIRMATION, OrderStatus.CONFIRMED, OrderStatus.CANCELLED, OrderStatus.RTO},
+    OrderStatus.AWAITING_BUYER_CONFIRMATION: {OrderStatus.CONFIRMED, OrderStatus.CANCELLED},
+    OrderStatus.CONFIRMED: {OrderStatus.DELIVERY_SCHEDULED, OrderStatus.PACKED, OrderStatus.CANCELLED},
+    OrderStatus.DELIVERY_SCHEDULED: {OrderStatus.PACKED, OrderStatus.CANCELLED},
     OrderStatus.PACKED: {OrderStatus.SHIPPED, OrderStatus.CANCELLED},
     OrderStatus.SHIPPED: {OrderStatus.OUT_FOR_DELIVERY, OrderStatus.RTO},
-    OrderStatus.OUT_FOR_DELIVERY: {OrderStatus.DELIVERED, OrderStatus.RTO},
+    OrderStatus.OUT_FOR_DELIVERY: {OrderStatus.DELIVERY_VERIFICATION_PENDING, OrderStatus.DELIVERED, OrderStatus.RTO},
+    OrderStatus.DELIVERY_VERIFICATION_PENDING: {OrderStatus.DELIVERED, OrderStatus.OUT_FOR_DELIVERY, OrderStatus.RTO},
     OrderStatus.DELIVERED: {OrderStatus.RETURN_INITIATED, OrderStatus.CLOSED},
     OrderStatus.RETURN_INITIATED: {OrderStatus.RETURN_UNDER_REVIEW},
     OrderStatus.RETURN_UNDER_REVIEW: {

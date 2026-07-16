@@ -88,6 +88,9 @@ class Address(Base):
     country: Mapped[str | None] = mapped_column(String(120), nullable=True, default="India")
     address_type: Mapped[str | None] = mapped_column(String(20), nullable=True, default="Home")
     phone_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    phone_lookup_validated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    lookup_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    lookup_data: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     validation_status: Mapped[str] = mapped_column(String(24), nullable=False, default="needs_correction")
     validation_explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -216,6 +219,10 @@ class Order(Base):
     exchange_tag: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     original_order_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("orders.id"), nullable=True)
     stock_decremented: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    promised_delivery_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rescheduled_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    whatsapp_workflow_state: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    delivery_boy_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
@@ -231,6 +238,9 @@ class OrderItem(Base):
     size: Mapped[str | None] = mapped_column(String(16), nullable=True)
     qty: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     price_at_purchase: Mapped[float] = mapped_column(Float, nullable=False)
+    delivery_front_image: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    delivery_back_image: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    delivery_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
 
 
 class OrderStatusHistory(Base):
@@ -319,6 +329,15 @@ class ReturnRecord(Base):
     refund_masked_details: Mapped[str | None] = mapped_column(String(255), nullable=True)
     replacement_order_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("orders.id"), nullable=True)
     status_timeline: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    buyer_front_image: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    buyer_back_image: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    similarity_front: Mapped[float | None] = mapped_column(Float, nullable=True)
+    similarity_back: Mapped[float | None] = mapped_column(Float, nullable=True)
+    similarity_aggregate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    attempt_history: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    inspection_checklist: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    delivery_boy_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("users.id"), nullable=True)
+    otp_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
@@ -409,4 +428,30 @@ class OtpSession(Base):
     last_sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class ChatConversation(Base):
+    __tablename__ = "chat_conversations"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="active")
+    page_route: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    page_type: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    product_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("products.id"), nullable=True)
+    order_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("orders.id"), nullable=True)
+    return_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("returns.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[str] = mapped_column(String(32), ForeignKey("chat_conversations.id"), nullable=False)
+    sender: Mapped[str] = mapped_column(String(16), nullable=False)  # user | assistant
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

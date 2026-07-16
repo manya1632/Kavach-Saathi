@@ -38,9 +38,17 @@ from kavach_saathi.models import (
     SellerVariantCreate,
 )
 from kavach_saathi.order_status import InvalidOrderTransition, OrderStatus, validate_transition
+from kavach_saathi.redis_client import get_redis
 
 router = APIRouter()
 _require_seller = require_role("seller")
+
+
+def _invalidate_size_popularity(product_id: str) -> None:
+    try:
+        get_redis().delete(f"size_popularity:{product_id}")
+    except Exception:
+        pass
 
 
 def _seller_profile(session: Session, user: User) -> SellerProfile:
@@ -269,29 +277,26 @@ async def initialize_seller_product(
         if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
             raise HTTPException(
                 status_code=400,
-                detail=f"Image key '{key}' has invalid extension. Only JPG, JPEG, PNG, WEBP are allowed."
+                detail=f"Image key '{key}' has invalid extension. Only JPG, JPEG, PNG, WEBP are allowed.",
             )
 
         if settings.is_live:
             import boto3
+
             s3 = boto3.client("s3", region_name=settings.aws_region)
             try:
                 head = s3.head_object(Bucket=settings.media_bucket, Key=key)
                 size = head.get("ContentLength", 0)
             except Exception as exc:
                 raise HTTPException(
-                    status_code=400,
-                    detail=f"Image key '{key}' not found or inaccessible in S3"
+                    status_code=400, detail=f"Image key '{key}' not found or inaccessible in S3"
                 ) from exc
         else:
             try:
                 path = _local_path(key, settings)
                 size = path.stat().st_size
             except FileNotFoundError as exc:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Image key '{key}' not found locally"
-                ) from exc
+                raise HTTPException(status_code=400, detail=f"Image key '{key}' not found locally") from exc
 
         if size <= 0:
             raise HTTPException(status_code=400, detail=f"Image key '{key}' is empty")
@@ -358,6 +363,7 @@ async def initialize_seller_product(
 
     if settings.is_live and settings.state_machine_arn:
         import boto3
+
         step_functions = boto3.client("stepfunctions", region_name=settings.aws_region)
         step_functions.start_execution(
             stateMachineArn=settings.state_machine_arn,
@@ -370,15 +376,9 @@ async def initialize_seller_product(
             ),
         )
     else:
-        _run_workflow_in_background(
-            lambda: container.service.resume(record.run_id)
-        )
+        _run_workflow_in_background(lambda: container.service.resume(record.run_id))
 
-    return {
-        "product_id": product_id,
-        "run_id": str(record.run_id),
-        "status": "extracting"
-    }
+    return {"product_id": product_id, "run_id": str(record.run_id), "status": "extracting"}
 
 
 @router.post("/seller/products/{product_id}/publish")
@@ -415,6 +415,7 @@ async def publish_seller_product(
 
     # Delete existing specifications for this product to prevent duplicates/conflicts
     from sqlalchemy import delete
+
     session.execute(delete(ProductSpecification).where(ProductSpecification.product_id == product_id))
 
     for item in payload.specifications:
@@ -468,8 +469,8 @@ async def publish_seller_product(
 
     session.flush()
     session.commit()
+    _invalidate_size_popularity(product_id)
     return {"id": product.id, "status": product.status}
-
 
 
 @router.patch("/seller/products/{product_id}")
@@ -518,6 +519,7 @@ async def add_seller_variant(
             )
         )
     session.flush()
+    _invalidate_size_popularity(product_id)
     return {"id": variant_id, "size": payload.size, "stock_qty": payload.stock_qty, "price": price}
 
 
@@ -571,4 +573,5 @@ async def update_seller_order_status(
     order.updated_at = datetime.now(UTC)
     session.add(OrderStatusHistory(order_id=order_id, status=target, actor="seller"))
     session.flush()
+    _invalidate_size_popularity(owns_item.product_id)
     return {"order_id": order_id, "status": order.status}

@@ -7,10 +7,10 @@ import logging
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
-from pydantic import BaseModel
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -500,6 +500,73 @@ async def verify_payment(
     }
 
 
+class DemoPaymentRequest(BaseModel):
+    card_number: str
+    expiry_date: str  # MM/YY
+    cvv: str
+
+
+@router.post("/orders/{order_id}/verify-demo-payment")
+async def verify_demo_payment(
+    order_id: str,
+    payload: DemoPaymentRequest,
+    user: Annotated[User, Depends(_require_buyer)],
+    cfg: Settings = Depends(get_settings),
+    session: Session = Depends(get_session),
+):
+    if cfg.app_mode != "demo":
+        raise HTTPException(status_code=403, detail="Demo payments are disabled in live mode")
+
+    order = session.get(Order, order_id)
+    if not order or order.buyer_id != user.id:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    payment = session.execute(select(Payment).where(Payment.order_id == order_id)).scalars().first()
+    if not payment:
+        raise HTTPException(status_code=404, detail="No payment record for this order")
+
+    # Validate card details
+    card_num = payload.card_number.replace(" ", "").replace("-", "")
+    if len(card_num) != 16 or not card_num.isdigit():
+        raise HTTPException(status_code=400, detail="Invalid card number. Must be 16 digits.")
+
+    if len(payload.cvv) != 3 or not payload.cvv.isdigit():
+        raise HTTPException(status_code=400, detail="Invalid CVV. Must be 3 digits.")
+
+    import re
+
+    if not re.match(r"^(0[1-9]|1[0-2])/\d{2}$", payload.expiry_date):
+        raise HTTPException(status_code=400, detail="Invalid expiry date format. Use MM/YY.")
+
+    month_str, year_str = payload.expiry_date.split("/")
+    month = int(month_str)
+    year = int("20" + year_str)
+
+    now = datetime.now()
+    cur_year = now.year
+    cur_month = now.month
+
+    if year < cur_year or (year == cur_year and month < cur_month):
+        raise HTTPException(status_code=400, detail="Card has expired.")
+
+    # Finalize prepaid order
+    finalized = _finalize_prepaid_order(session, order, payment, f"demo_pay_{order_id}")
+    session.commit()
+
+    delivery_confirmation_queued = False
+    if finalized:
+        delivery_confirmation_queued = bool(
+            publish_event(ORDER_PLACED_STREAM, {"order_id": order_id, "buyer_id": user.id})
+        )
+
+    return {
+        "order_id": order_id,
+        "payment_status": payment.status,
+        "status": order.status,
+        "delivery_confirmation_queued": delivery_confirmation_queued,
+    }
+
+
 @router.get("/orders/{order_id}/payment-status")
 async def payment_status(
     order_id: str,
@@ -539,9 +606,7 @@ async def list_my_orders(user: Annotated[User, Depends(_require_buyer)], session
     # ever covers the one product it was filed for) and reviews for all relevant orders
     returns_by_order_item: dict[tuple[str, str], ReturnRecord] = {}
     if order_ids:
-        for rr in session.execute(
-            select(ReturnRecord).where(ReturnRecord.order_id.in_(order_ids))
-        ).scalars():
+        for rr in session.execute(select(ReturnRecord).where(ReturnRecord.order_id.in_(order_ids))).scalars():
             returns_by_order_item[(rr.order_id, rr.product_id)] = rr
 
     result = []
@@ -550,7 +615,16 @@ async def list_my_orders(user: Annotated[User, Depends(_require_buyer)], session
         # Check if buyer has already reviewed any product in this order
         product_ids = list({i.product_id for i in order_items})
         reviewed_products: set[str] = set()
-        if product_ids and order.status == OrderStatus.DELIVERED:
+        POST_DELIVERY_STATUSES = {
+            OrderStatus.DELIVERED,
+            OrderStatus.RETURN_INITIATED,
+            OrderStatus.RETURN_UNDER_REVIEW,
+            OrderStatus.MANUAL_INSPECTION,
+            OrderStatus.RETURN_APPROVED,
+            OrderStatus.RETURN_REJECTED,
+            OrderStatus.CLOSED,
+        }
+        if product_ids and order.status in POST_DELIVERY_STATUSES:
             for rv in session.execute(
                 select(Review).where(Review.buyer_id == user.id, Review.product_id.in_(product_ids))
             ).scalars():
@@ -571,29 +645,35 @@ async def list_my_orders(user: Annotated[User, Depends(_require_buyer)], session
                 "created_at": rr.created_at,
             }
 
-        result.append({
-            "id": order.id,
-            "status": order.status,
-            "total_amount": order.total_amount,
-            "payment_mode": order.payment_mode,
-            "exchange_tag": order.exchange_tag,
-            "original_order_id": order.original_order_id,
-            "created_at": order.created_at,
-            "fit_feedback": order.fit_feedback,
-            "items": [
-                {
-                    "product_id": i.product_id,
-                    "product_name": session.get(Product, i.product_id).title if session.get(Product, i.product_id) else "Unknown",
-                    "image_url": session.get(Product, i.product_id).media_primary if session.get(Product, i.product_id) else "",
-                    "size": i.size,
-                    "qty": i.qty,
-                    "price_at_purchase": i.price_at_purchase,
-                    "already_reviewed": i.product_id in reviewed_products,
-                    "return_info": _return_info(returns_by_order_item.get((order.id, i.product_id))),
-                }
-                for i in order_items
-            ],
-        })
+        result.append(
+            {
+                "id": order.id,
+                "status": order.status,
+                "total_amount": order.total_amount,
+                "payment_mode": order.payment_mode,
+                "exchange_tag": order.exchange_tag,
+                "original_order_id": order.original_order_id,
+                "created_at": order.created_at,
+                "fit_feedback": order.fit_feedback,
+                "items": [
+                    {
+                        "product_id": i.product_id,
+                        "product_name": session.get(Product, i.product_id).title
+                        if session.get(Product, i.product_id)
+                        else "Unknown",
+                        "image_url": session.get(Product, i.product_id).media_primary
+                        if session.get(Product, i.product_id)
+                        else "",
+                        "size": i.size,
+                        "qty": i.qty,
+                        "price_at_purchase": i.price_at_purchase,
+                        "already_reviewed": i.product_id in reviewed_products,
+                        "return_info": _return_info(returns_by_order_item.get((order.id, i.product_id))),
+                    }
+                    for i in order_items
+                ],
+            }
+        )
     return result
 
 
@@ -662,14 +742,22 @@ async def create_return_request(
         raise HTTPException(status_code=404, detail="Order not found")
     if order.status not in _POST_DELIVERY_STATUSES:
         raise HTTPException(status_code=409, detail="Returns can only be requested after delivery")
-    item = session.execute(
-        select(OrderItem).where(OrderItem.order_id == order.id, OrderItem.product_id == payload.product_id)
-    ).scalars().first()
+    item = (
+        session.execute(
+            select(OrderItem).where(OrderItem.order_id == order.id, OrderItem.product_id == payload.product_id)
+        )
+        .scalars()
+        .first()
+    )
     if not item:
         raise HTTPException(status_code=404, detail="This product is not part of that order")
-    existing = session.execute(
-        select(ReturnRecord).where(ReturnRecord.order_id == order.id, ReturnRecord.product_id == payload.product_id)
-    ).scalars().first()
+    existing = (
+        session.execute(
+            select(ReturnRecord).where(ReturnRecord.order_id == order.id, ReturnRecord.product_id == payload.product_id)
+        )
+        .scalars()
+        .first()
+    )
     if existing:
         raise HTTPException(status_code=409, detail="A return already exists for this product")
 
@@ -715,6 +803,15 @@ async def create_review(
         raise HTTPException(status_code=404, detail="Product not found")
 
     # Check that the user has a delivered order containing this product
+    POST_DELIVERY_STATUSES = {
+        OrderStatus.DELIVERED,
+        OrderStatus.RETURN_INITIATED,
+        OrderStatus.RETURN_UNDER_REVIEW,
+        OrderStatus.MANUAL_INSPECTION,
+        OrderStatus.RETURN_APPROVED,
+        OrderStatus.RETURN_REJECTED,
+        OrderStatus.CLOSED,
+    }
     has_delivered_order = (
         session.execute(
             select(Order)
@@ -722,8 +819,8 @@ async def create_review(
             .where(
                 Order.buyer_id == user.id,
                 Order.id == payload.order_id,
-                Order.status == OrderStatus.DELIVERED,
-                OrderItem.product_id == payload.product_id
+                Order.status.in_(POST_DELIVERY_STATUSES),
+                OrderItem.product_id == payload.product_id,
             )
         )
         .scalars()
@@ -731,23 +828,17 @@ async def create_review(
     )
     if not has_delivered_order:
         raise HTTPException(
-            status_code=403,
-            detail="You can only review products you have purchased and had delivered."
+            status_code=403, detail="You can only review products you have purchased and had delivered."
         )
 
     # Check for duplicate review by the same buyer for this product
     duplicate = (
-        session.execute(
-            select(Review).where(Review.buyer_id == user.id, Review.product_id == payload.product_id)
-        )
+        session.execute(select(Review).where(Review.buyer_id == user.id, Review.product_id == payload.product_id))
         .scalars()
         .first()
     )
     if duplicate:
-        raise HTTPException(
-            status_code=409,
-            detail="You have already submitted a review for this product."
-        )
+        raise HTTPException(status_code=409, detail="You have already submitted a review for this product.")
 
     review_id = f"RV-{uuid4().hex[:10].upper()}"
     review = Review(
@@ -1208,10 +1299,7 @@ class SupportLogRequest(BaseModel):
 
 @router.get("/support/info")
 async def get_support_info():
-    return {
-        "phone": "+91-9748572321",
-        "email": "manyagupta.123.ag@gmail.com"
-    }
+    return {"phone": "+91-9748572321", "email": "manyagupta.123.ag@gmail.com"}
 
 
 @router.post("/support/log")
@@ -1227,4 +1315,3 @@ async def log_support_interaction(
     session.add(interaction)
     session.commit()
     return {"status": "logged", "id": interaction.id}
-

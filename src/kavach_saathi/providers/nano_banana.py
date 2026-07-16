@@ -28,11 +28,8 @@ class NanoBananaClient:
         self.settings = settings
 
     def _client(self):
-        if not self.settings.gemini_api_key:
-            raise NanoBananaUnavailable("GEMINI_API_KEY is not configured")
-        from google import genai
-
-        return genai.Client(api_key=self.settings.gemini_api_key)
+        from kavach_saathi.model_registry import get_gemini_client
+        return get_gemini_client(self.settings)
 
     async def generate_view(self, garment_png: bytes, view: str) -> bytes:
         """Generate one professional model-shot angle from a segmented garment image."""

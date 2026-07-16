@@ -205,7 +205,7 @@ function AddProductTab({ onCreated }) {
       const res = await post("/seller/products/initialize", { product_image_keys: prodKeys, catalogue_image_keys: catKeys });
       setProductId(res.product_id);
 
-      setProgress("Agent pipeline is extracting specs from catalogue images...");
+      setProgress("Extracting specifications from catalogue images...");
       let run = { status: "queued" };
       while (run.status === "queued" || run.status === "running") {
         await new Promise(r => setTimeout(r, 2000));

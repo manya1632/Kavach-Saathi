@@ -235,6 +235,12 @@ def create_app() -> FastAPI:
         # `order.placed` event (gap_report B1).
         start_order_consumer(container)
 
+        if container.settings.warm_up_on_startup:
+            import asyncio
+
+            from kavach_saathi.model_registry import warm_up_models
+            asyncio.create_task(asyncio.to_thread(warm_up_models, container.settings))
+
     def storefront_product(
         product: dict,
         container: Container,
@@ -303,7 +309,7 @@ def create_app() -> FastAPI:
         products = [product for product in products if product.get("status") == "active"]
 
         # Sort by activation_timestamp descending
-        from datetime import datetime, UTC
+        from datetime import UTC, datetime
         min_dt = datetime.min.replace(tzinfo=UTC)
 
         def get_activation_time(p):
@@ -370,7 +376,8 @@ def create_app() -> FastAPI:
     async def similar_products(product_id: str, container: Container = Depends(get_container)):
         """Returns up to 8 active and in-stock products in the same category (excluding current),
         with comparable price range (+-20%) and sorted by spec overlap and activation_timestamp DESC."""
-        from datetime import datetime, UTC as _UTC
+        from datetime import UTC as _UTC
+        from datetime import datetime
         product = container.repository.get("products", product_id)
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")

@@ -85,14 +85,9 @@ class GroqReasoningProvider(ReasoningProvider):
     name = "groq"
 
     def __init__(self, settings: Settings):
-        from groq import AsyncGroq
-
         self.settings = settings
-        self.client = AsyncGroq(
-            api_key=settings.groq_api_key,
-            timeout=settings.provider_timeout_seconds,
-            max_retries=0,
-        )
+        from kavach_saathi.model_registry import get_groq_client
+        self.client = get_groq_client(settings)
 
     async def _with_rate_limit_retry(self, operation: Callable[[], Any]) -> Any:
         from groq import RateLimitError
@@ -148,23 +143,25 @@ class GroqReasoningProvider(ReasoningProvider):
             extra_params["reasoning_effort"] = reasoning_effort
 
         async def invoke() -> Any:
-            return await self.client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": content},
-                ],
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": schema.__name__,
-                        "strict": True,
-                        "schema": json_schema,
+            from kavach_saathi.model_registry import log_timing
+            with log_timing("network_provider", f"groq_{model}"):
+                return await self.client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": content},
+                    ],
+                    response_format={
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": schema.__name__,
+                            "strict": True,
+                            "schema": json_schema,
+                        },
                     },
-                },
-                temperature=0,
-                **extra_params,
-            )
+                    temperature=0,
+                    **extra_params,
+                )
 
         try:
             response = await self._with_rate_limit_retry(invoke)
@@ -199,11 +196,8 @@ class GeminiReasoningProvider(ReasoningProvider):
         self.settings = settings
 
     def _client(self):
-        if not self.settings.gemini_api_key:
-            raise ReasoningUnavailable("GEMINI_API_KEY is not configured")
-        from google import genai
-
-        return genai.Client(api_key=self.settings.gemini_api_key)
+        from kavach_saathi.model_registry import get_gemini_client
+        return get_gemini_client(self.settings)
 
     async def structured(
         self,
@@ -245,16 +239,18 @@ class GeminiReasoningProvider(ReasoningProvider):
                 parts.append(types.Part.from_bytes(data=image_bytes, mime_type="image/png"))
             parts.append(prompt)
 
-            response = client.models.generate_content(
-                model=self.settings.gemini_reasoning_model,
-                contents=parts,
-                config=types.GenerateContentConfig(
-                    system_instruction=system,
-                    response_mime_type="application/json",
-                    response_schema=schema,
-                    temperature=0,
-                ),
-            )
+            from kavach_saathi.model_registry import log_timing
+            with log_timing("network_provider", f"gemini_{self.settings.gemini_reasoning_model}"):
+                response = client.models.generate_content(
+                    model=self.settings.gemini_reasoning_model,
+                    contents=parts,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system,
+                        response_mime_type="application/json",
+                        response_schema=schema,
+                        temperature=0,
+                    ),
+                )
 
             if getattr(response, "parsed", None) is not None:
                 return response.parsed

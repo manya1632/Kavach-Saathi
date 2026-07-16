@@ -268,7 +268,7 @@ export default function Support() {
       <footer className="site-footer" style={{ marginTop: "auto", background: "var(--ink, #241b20)", color: "white", padding: "20px max(20px, calc((100vw - 1280px) / 2))" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
           <span style={{ fontSize: "13px" }}>© 2026 Kavach Saathi Storefront. All rights reserved.</span>
-          <span style={{ fontSize: "13px", opacity: 0.8 }}>Agent-protected commerce support</span>
+          <span style={{ fontSize: "13px", opacity: 0.8 }}>Secure commerce help &amp; support</span>
         </div>
       </footer>
     </div>

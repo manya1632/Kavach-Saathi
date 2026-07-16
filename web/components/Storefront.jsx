@@ -41,7 +41,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -112,7 +112,7 @@ function ProductCard({ product, onOpen, onAdd, onWishlist, wished, pending }) {
     <article className="product-card" data-testid={`product-${product.id}`} data-category={product.category}>
       <div className="product-visual" role="button" tabIndex={0} onClick={() => onOpen(product)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpen(product); }} aria-label={`Open ${product.name}`}>
         <img src={assetUrl(product.image_url)} alt={product.name} />
-        <span className="agent-checked"><ShieldCheck size={13} /> Agent checked</span>
+        <span className="agent-checked"><ShieldCheck size={13} /> Verified</span>
         <button className={`heart ${wished ? "active" : ""}`} type="button" onClick={(event) => { event.stopPropagation(); onWishlist(product); }} aria-label={wished ? `Remove ${product.name} from wishlist` : `Add ${product.name} to wishlist`}><Heart size={17} fill={wished ? "currentColor" : "none"} /></button>
       </div>
       <div className="product-info">
@@ -227,7 +227,7 @@ function ProductPageView({ product, similarProducts, busy, cart, cartBusy, onBac
       <main className="product-page" aria-label={product.name}>
         <div className="drawer-gallery four-view-gallery">
           {(product.catalogue_images?.length ? product.catalogue_images : ["front", "back", "left", "right"].map((angle) => ({ angle, url: product.image_url }))).map((image) => <figure key={image.angle}><img src={assetUrl(image.url)} alt={`${product.name} ${image.angle} view`} /><figcaption>{image.angle === "left" || image.angle === "right" ? `${image.angle} side` : image.angle}</figcaption></figure>)}
-          <span><ShieldCheck size={15} /> Catalogue & specs checked</span>
+          <span><ShieldCheck size={15} /> Verified listing</span>
         </div>
         <div className="drawer-content">
           <p className="drawer-category">{product.category}</p>
@@ -236,7 +236,7 @@ function ProductPageView({ product, similarProducts, busy, cart, cartBusy, onBac
           <div className="drawer-price"><strong>{money(product.price)}</strong><s>{money(product.original_price)}</s><span>{product.discount_percent}% off</span></div>
           {product.description && <p className="drawer-description">{product.description}</p>}
           {!!product.badges?.length && <div className="product-badges">{product.badges.map((badge) => <span key={badge}><Check size={11} /> {badge}</span>)}</div>}
-          <div className="trust-banner"><ShieldCheck size={19} /><div><strong>Verified product evidence</strong><p>Agent 1 checked imagery. Agent 2 matched seller claims to label-backed specs.</p></div></div>
+          <div className="trust-banner"><ShieldCheck size={19} /><div><strong>Verified product details</strong><p>Catalogue imagery and specifications matched to verified label details.</p></div></div>
 
           {!!sizes.length && <div className="size-section"><div className="section-label"><strong>Select size</strong><button type="button" onClick={onSize} disabled={busy}>{busy ? <LoaderCircle className="spin" size={13} /> : <Sparkles size={13} />} Ask Size Saathi</button></div><div className="size-row">{sizes.map((item) => <button className={selectedSize === item ? "selected" : ""} type="button" key={item} onClick={() => setSize(item)}>{item}</button>)}</div>{sizeSaathi && <div className="agent-answer size-saathi-answer">{sizeSaathi.size ? <strong>Recommended: {sizeSaathi.size}</strong> : null}{sizeSaathi.message && <span>{sizeSaathi.message}</span>}{sizeSaathi.audioUrl && <audio controls src={sizeSaathi.audioUrl} style={{ width: "100%", marginTop: 8 }} />}</div>}</div>}
 
@@ -280,7 +280,7 @@ function ProductPageView({ product, similarProducts, busy, cart, cartBusy, onBac
             </div>
             {requestingMic && <small style={{ color: "var(--plum)", fontWeight: 600 }}>Waiting for microphone permission…</small>}
             {recording && <small style={{ color: "var(--accent, #e5484d)", fontWeight: 600 }}>Recording… click mic again to stop</small>}
-            <small>Agent 5 (Gemini + Pinecone RAG) answers, grounded only in verified product data and real reviews.</small>
+            <small>Answers are grounded in verified product specifications and customer reviews.</small>
             {agentAnswer && <div className="agent-answer"><Sparkles size={14} /> <span>{agentAnswer}</span></div>}
             {voiceAudioUrl && <audio controls src={voiceAudioUrl} style={{ width: "100%", marginTop: 8 }} />}
           </form>
@@ -296,7 +296,7 @@ function ProductPageView({ product, similarProducts, busy, cart, cartBusy, onBac
                     {product.review_report.photos_flagged > 0 && (
                       <> · {product.review_report.photos_flagged} flagged and hidden</>
                     )}{" "}
-                    (Agent 4 · CLIP + BERT)
+                    (Auto-verified review content)
                   </p>
                 )}
               </div>
@@ -326,7 +326,7 @@ function ProductPageView({ product, similarProducts, busy, cart, cartBusy, onBac
                     )}
                     {review.media && review.is_hidden_by_agent && (
                       <span className="review-flagged">
-                        <ShieldAlert size={12} /> Photo hidden by Agent 4 — didn&apos;t match this product
+                        <ShieldAlert size={12} /> Photo hidden — incorrect product matched
                       </span>
                     )}
                   </article>
@@ -355,7 +355,7 @@ function ProductPageView({ product, similarProducts, busy, cart, cartBusy, onBac
       {/* Site footer on product pages (Task 12) */}
       <footer className="site-footer" style={{ marginTop: "0" }}>
         <Link className="logo inverse" href="/"><span>K</span><div><strong>Kavach</strong><small>SAATHI SHOP</small></div></Link>
-        <p>Every product, review and return is agent-verified — no fake shortcuts.</p>
+        <p>Every product, review, and return is verified for authenticity.</p>
         <div>
           <Link href="/" style={{ color: "inherit", textDecoration: "none" }}>← Back to storefront</Link>
         </div>
@@ -374,7 +374,7 @@ function ReviewSummaryDialog({ data, onClose }) {
       <button className="drawer-scrim" type="button" onClick={onClose} aria-label="Close review summary" />
       <aside className="review-summary-dialog" role="dialog" aria-modal="true" aria-label="Review truth summary">
         <div className="side-heading">
-          <div><p>AGENT 4 · REVIEW TRUTH</p><h2>Review summary</h2></div>
+          <div><p>VERIFIED REVIEWS</p><h2>Review summary</h2></div>
           <button type="button" onClick={onClose} aria-label="Close"><X size={20} /></button>
         </div>
         <div className="review-summary-rating">
@@ -411,24 +411,45 @@ function ReviewSummaryDialog({ data, onClose }) {
   );
 }
 
-function CartDrawer({ items, open, busyItem, onClose, onUpdate, onRemove, onCheckout }) {
+function CartDrawer({ items, open, busyItem, onClose, onUpdate, onRemove, onCheckout, fullScreen = false }) {
   const total = items.reduce((sum, item) => sum + item.line_total, 0);
+
+  const drawerContent = (
+    <aside className={fullScreen ? "full-screen-account-page" : "side-drawer cart-drawer"} role="dialog" aria-modal="true" aria-label="Shopping cart" style={fullScreen ? { width: "100%", background: "white", padding: "24px", borderRadius: "12px", border: "1px solid var(--border)", boxShadow: "0 1px 3px rgba(0,0,0,0.05)", position: "relative" } : {}}>
+      {fullScreen && (
+        <button type="button" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", color: "var(--muted)", fontWeight: "600", fontSize: "14px", padding: 0, marginBottom: "20px" }}>
+          <ArrowLeft size={16} /> Back to Shop
+        </button>
+      )}
+      <div className="side-heading" style={fullScreen ? { borderBottom: "1px solid var(--line)", paddingBottom: "16px", marginBottom: "20px" } : {}}>
+        <div><p>YOUR CART</p><h2>{items.length ? `${items.length} item${items.length > 1 ? "s" : ""}` : "Cart is empty"}</h2></div>
+        {!fullScreen && <button type="button" onClick={onClose} aria-label="Close"><X size={20} /></button>}
+      </div>
+      <div className="cart-items">
+        {!items.length && <div className="cart-empty"><ShoppingBag size={34} /><p>Add something you love. Kavach Saathi will verify it along the way.</p></div>}
+        {items.map((item) => <article className="cart-item" key={item.id}><img src={assetUrl(item.image_url)} alt={item.product_name} /><div><strong>{item.product_name}</strong><p>Size {item.size || "Standard"}</p><span>{money(item.line_total)}</span><QuantityStepper compact qty={item.qty} max={Math.min(10, item.stock_qty)} busy={busyItem === item.id} onDecrease={() => onUpdate(item, item.qty - 1)} onIncrease={() => onUpdate(item, item.qty + 1)} /><button type="button" onClick={() => onRemove(item)} disabled={busyItem === item.id}>Remove</button></div><ShieldCheck size={18} /></article>)}
+      </div>
+      {!!items.length && <div className="cart-total" style={fullScreen ? { marginTop: "24px", paddingTop: "20px", borderTop: "1px solid var(--line)" } : {}}><div><span>Product total</span><strong>{money(total)}</strong></div><div><span>Delivery</span><strong className="free">FREE</strong></div><div className="grand-total"><span>Order total</span><strong>{money(total)}</strong></div><button className="primary-cta wide" type="button" onClick={onCheckout}>Continue to secure checkout <ArrowRight size={17} /></button><p><ShieldCheck size={13} /> Address and delivery consent will be verified before dispatch.</p></div>}
+    </aside>
+  );
+
+  if (fullScreen) {
+    return (
+      <div className="account-page-container" style={{ maxWidth: "800px", margin: "40px auto", padding: "0 20px" }}>
+        {drawerContent}
+      </div>
+    );
+  }
+
   return (
     <div className={`drawer-layer ${open ? "open" : ""}`} aria-hidden={!open}>
       <button className="drawer-scrim" type="button" onClick={onClose} aria-label="Close cart" />
-      <aside className="side-drawer cart-drawer" role="dialog" aria-modal="true" aria-label="Shopping cart">
-        <div className="side-heading"><div><p>YOUR CART</p><h2>{items.length ? `${items.length} item${items.length > 1 ? "s" : ""}` : "Cart is empty"}</h2></div><button type="button" onClick={onClose} aria-label="Close"><X size={20} /></button></div>
-        <div className="cart-items">
-          {!items.length && <div className="cart-empty"><ShoppingBag size={34} /><p>Add something you love. Kavach Saathi will verify it along the way.</p></div>}
-          {items.map((item) => <article className="cart-item" key={item.id}><img src={assetUrl(item.image_url)} alt={item.product_name} /><div><strong>{item.product_name}</strong><p>Size {item.size || "Standard"}</p><span>{money(item.line_total)}</span><QuantityStepper compact qty={item.qty} max={Math.min(10, item.stock_qty)} busy={busyItem === item.id} onDecrease={() => onUpdate(item, item.qty - 1)} onIncrease={() => onUpdate(item, item.qty + 1)} /><button type="button" onClick={() => onRemove(item)} disabled={busyItem === item.id}>Remove</button></div><ShieldCheck size={18} /></article>)}
-        </div>
-        {!!items.length && <div className="cart-total"><div><span>Product total</span><strong>{money(total)}</strong></div><div><span>Delivery</span><strong className="free">FREE</strong></div><div className="grand-total"><span>Order total</span><strong>{money(total)}</strong></div><button className="primary-cta" type="button" onClick={onCheckout}>Continue to secure checkout <ArrowRight size={17} /></button><p><ShieldCheck size={13} /> Address and delivery consent will be verified before dispatch.</p></div>}
-      </aside>
+      {drawerContent}
     </div>
   );
 }
 
-function AccountDataDrawer({ type, open, orders, wishlist, returns, onClose, onOpenProduct, onRemoveWishlist, onStartReturn, onStartReview, onViewReturn, onSubmitFitFeedback, onSimulateConfirmation }) {
+function AccountDataDrawer({ type, open, orders, wishlist, returns, onClose, onOpenProduct, onRemoveWishlist, onStartReturn, onStartReview, onViewReturn, onSubmitFitFeedback, onSimulateConfirmation, fullScreen = false }) {
   const title = type === "orders" ? "My Orders" : type === "wishlist" ? "My Wishlist" : "My Returns";
   const items = type === "orders" ? orders : type === "wishlist" ? wishlist : returns;
 
@@ -444,14 +465,17 @@ function AccountDataDrawer({ type, open, orders, wishlist, returns, onClose, onO
   // delivered, so its other, untouched items should still show Return/Exchange/Review.
   const POST_DELIVERY_STATUSES = ["DELIVERED", "RETURN_INITIATED", "RETURN_UNDER_REVIEW", "RETURN_APPROVED", "RETURN_REJECTED", "MANUAL_INSPECTION", "CLOSED"];
 
-  return (
-    <div className={`drawer-layer ${open ? "open" : ""}`} aria-hidden={!open}>
-      <button className="drawer-scrim" type="button" onClick={onClose} aria-label={`Close ${title}`} />
-      <aside className="side-drawer account-data-drawer" role="dialog" aria-modal="true" aria-label={title}>
-        <div className="side-heading">
-          <div><p>YOUR ACCOUNT</p><h2>{title}</h2></div>
-          <button type="button" onClick={onClose} aria-label="Close"><X size={20} /></button>
-        </div>
+  const drawerContent = (
+    <aside className={fullScreen ? "full-screen-account-page" : "side-drawer account-data-drawer"} role="dialog" aria-modal="true" aria-label={title} style={fullScreen ? { width: "100%", background: "white", padding: "24px", borderRadius: "12px", border: "1px solid var(--border)", boxShadow: "0 1px 3px rgba(0,0,0,0.05)", position: "relative" } : {}}>
+      {fullScreen && (
+        <button type="button" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", color: "var(--muted)", fontWeight: "600", fontSize: "14px", padding: 0, marginBottom: "20px" }}>
+          <ArrowLeft size={16} /> Back to Shop
+        </button>
+      )}
+      <div className="side-heading" style={fullScreen ? { borderBottom: "1px solid var(--line)", paddingBottom: "16px", marginBottom: "20px" } : {}}>
+        <div><p>YOUR ACCOUNT</p><h2>{title}</h2></div>
+        {!fullScreen && <button type="button" onClick={onClose} aria-label="Close"><X size={20} /></button>}
+      </div>
         <div className="account-data-list">
           {!items.length && <div className="cart-empty"><Package size={34} /><p>No {title.toLowerCase()} yet.</p></div>}
 
@@ -484,7 +508,7 @@ function AccountDataDrawer({ type, open, orders, wishlist, returns, onClose, onO
                         {" — "}
                         <span style={{ color: "#78350f", textTransform: "capitalize" }}>{(item.return_info.status || "").replace(/_/g, " ")}</span>
                         {item.return_info.decision && <span style={{ marginLeft: "4px", color: "#64748b" }}>· {item.return_info.decision}</span>}
-                        {item.return_info.confidence_score != null && <span style={{ marginLeft: "4px", color: "#64748b" }}>· Agent: {item.return_info.confidence_score}%</span>}
+                        {item.return_info.confidence_score != null && <span style={{ marginLeft: "4px", color: "#64748b" }}>· Match score: {item.return_info.confidence_score}%</span>}
                         {item.return_info.pickup_date && <div style={{ color: "#64748b", marginTop: "2px" }}>Pickup: {new Date(item.return_info.pickup_date).toLocaleDateString("en-IN")}</div>}
                         {item.return_info.refund_status && <div style={{ color: "#64748b", marginTop: "2px" }}>Refund: {item.return_info.refund_status}</div>}
                         <button
@@ -553,7 +577,7 @@ function AccountDataDrawer({ type, open, orders, wishlist, returns, onClose, onO
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", fontSize: "12px", color: "#64748b" }}>
                 <span>Status: <strong style={{ color: "#334155" }}>{(item.status || "pending_evidence").replace(/_/g, " ")}</strong></span>
                 {item.decision && <span>· Decision: <strong style={{ color: "#334155" }}>{item.decision.replace(/_/g, " ")}</strong></span>}
-                {item.confidence_score != null && <span>· Agent: <strong style={{ color: "#334155" }}>{item.confidence_score}%</strong></span>}
+                {item.confidence_score != null && <span>· Match: <strong style={{ color: "#334155" }}>{item.confidence_score}%</strong></span>}
               </div>
               {item.pickup_date && <p style={{ margin: "4px 0 0", fontSize: "12px", color: "#16a34a" }}>Pickup: {new Date(item.pickup_date).toLocaleDateString("en-IN")}</p>}
               {item.refund_status && <p style={{ margin: "4px 0 0", fontSize: "12px", color: "#6366f1" }}>Refund: {item.refund_status}</p>}
@@ -570,6 +594,20 @@ function AccountDataDrawer({ type, open, orders, wishlist, returns, onClose, onO
           ))}
         </div>
       </aside>
+    );
+
+  if (fullScreen) {
+    return (
+      <div className="account-page-container" style={{ maxWidth: "800px", margin: "40px auto", padding: "0 20px" }}>
+        {drawerContent}
+      </div>
+    );
+  }
+
+  return (
+    <div className={`drawer-layer ${open ? "open" : ""}`} aria-hidden={!open}>
+      <button className="drawer-scrim" type="button" onClick={onClose} aria-label={`Close ${title}`} />
+      {drawerContent}
     </div>
   );
 }
@@ -583,6 +621,7 @@ function ReturnVerificationDrawer({ open, returnId, returns, orders, onClose, on
   const [recordingSeconds, setRecordingSeconds] = useState(10);
   const [mediaStream, setMediaStream] = useState(null);
   const [mediaRecorder, setMediaRecorder] = useState(null);
+  const [actionDialog, setActionDialog] = useState(null);
   
   const videoPreviewRef = useRef(null);
   const recordedChunksRef = useRef([]);
@@ -643,7 +682,7 @@ function ReturnVerificationDrawer({ open, returnId, returns, orders, onClose, on
       }, 1000);
 
     } catch (err) {
-      alert("Could not access camera: " + err.message);
+      setActionDialog({ title: "Camera Access Error", text: "Could not access camera: " + err.message, type: "error" });
     }
   }
 
@@ -662,11 +701,11 @@ function ReturnVerificationDrawer({ open, returnId, returns, orders, onClose, on
     const file = event.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("video/")) {
-      alert("Please select a valid video file.");
+      setActionDialog({ title: "Invalid File Type", text: "Please select a valid video file.", type: "warning" });
       return;
     }
     if (file.size > 50 * 1024 * 1024) {
-      alert("File is too large. Please select a video under 50MB.");
+      setActionDialog({ title: "File Too Large", text: "File is too large. Please select a video under 50MB.", type: "warning" });
       return;
     }
     setVideoFile(file);
@@ -696,7 +735,7 @@ function ReturnVerificationDrawer({ open, returnId, returns, orders, onClose, on
         throw new Error(`Upload failed with status ${response.status}`);
       }
 
-      setStatusText("Agent 8 is evaluating return evidence...");
+      setStatusText("Evaluating return evidence...");
       await postAndPoll("/returns/analyze", {
         order_id: record.order_id,
         product_id: record.product_id,
@@ -711,7 +750,7 @@ function ReturnVerificationDrawer({ open, returnId, returns, orders, onClose, on
       }, 1500);
 
     } catch (err) {
-      alert("Failed to verify return: " + err.message);
+      setActionDialog({ title: "Verification Failed", text: "Failed to verify return: " + err.message, type: "error" });
       setUploading(false);
       setStatusText("");
     }
@@ -746,7 +785,7 @@ function ReturnVerificationDrawer({ open, returnId, returns, orders, onClose, on
           <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid var(--line)", paddingBottom: "10px" }}>
             <span>Status: <strong style={{ color: "var(--plum)", textTransform: "uppercase" }}>{record.status?.replace(/_/g, " ")}</strong></span>
             {record.confidence_score != null && (
-              <span>Agent Confidence: <strong style={{ color: record.confidence_score >= 75 ? "#16a34a" : record.confidence_score >= 40 ? "#d97706" : "#ef4444" }}>{record.confidence_score}%</strong></span>
+              <span>Verification Match Score: <strong style={{ color: record.confidence_score >= 75 ? "#16a34a" : record.confidence_score >= 40 ? "#d97706" : "#ef4444" }}>{record.confidence_score}%</strong></span>
             )}
           </div>
           
@@ -798,7 +837,7 @@ function ReturnVerificationDrawer({ open, returnId, returns, orders, onClose, on
                   style={{ width: "100%" }}
                 >
                   {uploading ? <LoaderCircle className="spin" size={16} /> : <ShieldCheck size={16} />}
-                  {uploading ? statusText : "Submit Evidence for Agent 8 Review"}
+                  {uploading ? statusText : "Submit Evidence for Verification"}
                 </button>
               </div>
             )}
@@ -819,6 +858,13 @@ function ReturnVerificationDrawer({ open, returnId, returns, orders, onClose, on
               ))}
             </div>
           </div>
+        )}
+        {actionDialog && (
+          <ActionDialog
+            isOpen={true}
+            onClose={() => setActionDialog(null)}
+            {...actionDialog}
+          />
         )}
       </aside>
     </div>
@@ -945,7 +991,7 @@ function CheckoutDrawer({
             )}
 
             {isValidAddress && (
-              <div className="consent-box" style={{ margin: 0 }}><Truck size={19} /><div><strong>Agent 7 delivery confirmation</strong><p>A real verification call confirms buyer availability before delivery.</p></div></div>
+              <div className="consent-box" style={{ margin: 0 }}><Truck size={19} /><div><strong>Delivery confirmation verification</strong><p>A scheduled verification call confirms buyer availability before delivery.</p></div></div>
             )}
 
             {selectedAddress && (
@@ -978,9 +1024,9 @@ function CheckoutDrawer({
               <br />
               <span>{orderSummary?.address?.address_line1}, {orderSummary?.address?.city} · DIGIPIN {orderSummary?.address?.digipin}</span>
               <br />
-              <Check size={15} /> Agent 6 verified address
+              <Check size={15} /> Address verified
               <br />
-              <Check size={15} /> Agent 7 captured consent
+              <Check size={15} /> Delivery consent recorded
             </div>
             <button className="primary-cta wide" type="button" onClick={onGoOrders}>
               Go to My Orders
@@ -992,7 +1038,7 @@ function CheckoutDrawer({
   );
 }
 
-function AddressManagerDrawer({ open, onClose, buyerId }) {
+function AddressManagerDrawer({ open, onClose, buyerId, fullScreen = false }) {
   const [addresses, setAddresses] = useState([]);
   const [mode, setMode] = useState("list");
   const [formData, setFormData] = useState({
@@ -1020,6 +1066,9 @@ function AddressManagerDrawer({ open, onClose, buyerId }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   const mapRef = useRef(null);
   const leafletMap = useRef(null);
   const marker = useRef(null);
@@ -1264,14 +1313,24 @@ function AddressManagerDrawer({ open, onClose, buyerId }) {
     }
   }
 
-  async function handleDelete(id) {
-    if (!confirm("Are you sure you want to delete this address?")) return;
+  function handleDelete(id) {
+    setConfirmDeleteId(id);
+    setDeleteError("");
+  }
+
+  async function handleDeleteConfirm() {
+    if (!confirmDeleteId) return;
+    setDeleteBusy(true);
+    setDeleteError("");
     try {
-      await del(`/addresses/${id}`);
+      await del(`/addresses/${confirmDeleteId}`);
+      setConfirmDeleteId(null);
       loadAddresses();
       setSuccess("Address deleted successfully.");
     } catch (err) {
-      setError("Failed to delete address: " + err.message);
+      setDeleteError("Failed to delete address: " + err.message);
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -1334,14 +1393,17 @@ function AddressManagerDrawer({ open, onClose, buyerId }) {
     setSuccess("");
   }
 
-  return (
-    <div className={`drawer-layer ${open ? "open" : ""}`} aria-hidden={!open}>
-      <button className="drawer-scrim" type="button" onClick={onClose} aria-label="Close address manager" />
-      <aside className="side-drawer" role="dialog" aria-modal="true" aria-label="Manage Addresses" style={{ width: "min(550px, 100vw)" }}>
-        <div className="side-heading">
-          <div><p>YOUR PROFILE</p><h2>{mode === "list" ? "Manage Addresses" : mode === "add" ? "Add Address" : "Edit Address"}</h2></div>
-          <button type="button" onClick={onClose} aria-label="Close"><X size={20} /></button>
-        </div>
+  const drawerContent = (
+    <aside className={fullScreen ? "full-screen-account-page" : "side-drawer"} role="dialog" aria-modal="true" aria-label="Manage Addresses" style={fullScreen ? { width: "100%", background: "white", padding: "24px", borderRadius: "12px", border: "1px solid var(--border)", boxShadow: "0 1px 3px rgba(0,0,0,0.05)", position: "relative" } : { width: "min(550px, 100vw)" }}>
+      {fullScreen && (
+        <button type="button" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", color: "var(--muted)", fontWeight: "600", fontSize: "14px", padding: 0, marginBottom: "20px" }}>
+          <ArrowLeft size={16} /> Back to Shop
+        </button>
+      )}
+      <div className="side-heading" style={fullScreen ? { borderBottom: "1px solid var(--line)", paddingBottom: "16px", marginBottom: "20px" } : {}}>
+        <div><p>YOUR PROFILE</p><h2>{mode === "list" ? "Manage Addresses" : mode === "add" ? "Add Address" : "Edit Address"}</h2></div>
+        {!fullScreen && <button type="button" onClick={onClose} aria-label="Close"><X size={20} /></button>}
+      </div>
 
         {error && <div className="toast error" style={{ position: "static", margin: "16px", background: "#fdf0f0", color: "#e5484d", border: "1px solid #f8c8c9" }}>{error}</div>}
         {success && <div className="toast success" style={{ position: "static", margin: "16px", background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0" }}>{success}</div>}
@@ -1481,7 +1543,30 @@ function AddressManagerDrawer({ open, onClose, buyerId }) {
             </div>
           </div>
         )}
-      </aside>
+        {confirmDeleteId && (
+          <ConfirmDeleteDialog
+            isOpen={true}
+            onClose={() => setConfirmDeleteId(null)}
+            onConfirm={handleDeleteConfirm}
+            deleting={deleteBusy}
+            error={deleteError}
+          />
+        )}
+    </aside>
+  );
+
+  if (fullScreen) {
+    return (
+      <div className="account-page-container" style={{ maxWidth: "800px", margin: "40px auto", padding: "0 20px" }}>
+        {drawerContent}
+      </div>
+    );
+  }
+
+  return (
+    <div className={`drawer-layer ${open ? "open" : ""}`} aria-hidden={!open}>
+      <button className="drawer-scrim" type="button" onClick={onClose} aria-label="Close address manager" />
+      {drawerContent}
     </div>
   );
 }
@@ -1578,8 +1663,32 @@ function AuthModal({ open, onClose, onAuthenticated }) {
 
 export default function Storefront({ initialProductId = null }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
+
+  // Dialog/Modal states
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
+  const [returnRequestData, setReturnRequestData] = useState(null); // { orderId, productId, returnType }
+  const [returnRequestBusy, setReturnRequestBusy] = useState(false);
+  const [returnRequestError, setReturnRequestError] = useState("");
+
+  const [reviewComposerData, setReviewComposerData] = useState(null); // { productId, orderId }
+  const [reviewComposerBusy, setReviewComposerBusy] = useState(false);
+  const [reviewComposerError, setReviewComposerError] = useState("");
+
+  const [confirmationCallData, setConfirmationCallData] = useState(null); // { orderId }
+  const [confirmationCallBusy, setConfirmationCallBusy] = useState(false);
+  const [confirmationCallError, setConfirmationCallError] = useState("");
+
+  const [actionDialogConfig, setActionDialogConfig] = useState(null); // { title, text, type }
+
+  const [cardPaymentData, setCardPaymentData] = useState(null); // { addressId, amount, orderId }
+  const [cardPaymentBusy, setCardPaymentBusy] = useState(false);
+  const [cardPaymentError, setCardPaymentError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -1748,46 +1857,97 @@ export default function Storefront({ initialProductId = null }) {
     } catch (reason) { setToast(reason.message || "Could not save fit feedback"); }
   }
 
-  async function simulateConfirmation(orderId) {
-    const decision = window.prompt("Simulate the buyer's phone reply: type 'confirmed', 'reschedule', or 'cancel'", "confirmed");
-    if (!decision) return;
-    if (!["confirmed", "reschedule", "cancel"].includes(decision)) {
-      setToast("Please type exactly: confirmed, reschedule, or cancel");
-      return;
-    }
-    try {
-      await post(`/orders/${orderId}/confirm-simulated`, { decision });
-      await refreshAccountData();
-      setToast("Delivery confirmation recorded.");
-    } catch (reason) { setToast(reason.message || "Could not record confirmation"); }
+  function simulateConfirmation(orderId) {
+    setConfirmationCallData({ orderId });
+    setConfirmationCallError("");
   }
 
-  async function startReturn(orderId, productId, returnType = "refund") {
-    const reason = window.prompt(`Why are you ${returnType === "exchange" ? "exchanging" : "returning"} this product?`);
-    if (!reason) return;
+  async function handleConfirmationCallSubmit(decision) {
+    if (!confirmationCallData) return;
+    setConfirmationCallBusy(true);
+    setConfirmationCallError("");
+    try {
+      await post(`/orders/${confirmationCallData.orderId}/confirm-simulated`, { decision });
+      setConfirmationCallData(null);
+      await refreshAccountData();
+      setToast("Delivery confirmation recorded.");
+    } catch (reason) {
+      setConfirmationCallError(reason.message || "Could not record confirmation");
+    } finally {
+      setConfirmationCallBusy(false);
+    }
+  }
+
+  function startReturn(orderId, productId, returnType = "refund") {
+    setReturnRequestData({ orderId, productId, returnType });
+    setReturnRequestError("");
+  }
+
+  async function handleReturnRequestSubmit(reason) {
+    if (!returnRequestData) return;
+    setReturnRequestBusy(true);
+    setReturnRequestError("");
+    const { orderId, productId, returnType } = returnRequestData;
     try {
       const res = await createReturnRequest(orderId, productId, reason, returnType);
+      setReturnRequestData(null);
       await refreshAccountData();
       setSelectedReturnId(res.id);
       setDrawer("return-verify");
-      setToast(`${returnType === "exchange" ? "Exchange" : "Return"} request created. Add evidence for Agent 8 review.`);
-    } catch (reasonError) { setToast(reasonError.message || "Could not create return"); }
+      setToast(`${returnType === "exchange" ? "Exchange" : "Return"} request created. Add evidence for verification.`);
+    } catch (reasonError) {
+      setReturnRequestError(reasonError.message || "Could not create return");
+    } finally {
+      setReturnRequestBusy(false);
+    }
   }
 
-  async function startReview(productId, orderId) {
-    const rating = Number(window.prompt("Rate this delivered product from 1 to 5:", "5"));
-    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
-      setToast("Please enter a whole-number rating from 1 to 5");
-      return;
-    }
-    const text = window.prompt("Write your review:", "");
-    if (text === null) return;
+  function startReview(productId, orderId) {
+    setReviewComposerData({ productId, orderId });
+    setReviewComposerError("");
+  }
+
+  async function handleReviewComposerSubmit({ rating, text, file }) {
+    if (!reviewComposerData) return;
+    setReviewComposerBusy(true);
+    setReviewComposerError("");
+    const { productId, orderId } = reviewComposerData;
     try {
-      await createReview({ product_id: productId, order_id: orderId, rating, text });
+      let mediaKey = null;
+      if (file) {
+        const extension = file.type.split("/")[1] || "png";
+        const presign = await post("/uploads/presign", {
+          kind: "review",
+          filename: `review_photo.${extension}`,
+          content_type: file.type
+        });
+        const uploadRes = await fetch(presign.upload_url, {
+          method: "PUT",
+          body: file,
+          headers: { "Content-Type": file.type }
+        });
+        if (!uploadRes.ok) {
+          throw new Error("Failed to upload review photo.");
+        }
+        mediaKey = presign.object_key;
+      }
+      await createReview({
+        product_id: productId,
+        order_id: orderId,
+        rating,
+        text,
+        image_key: mediaKey
+      });
+      setReviewComposerData(null);
       await refreshAccountData();
-      setToast("Review posted — Agent 4 is checking it in the background");
+      if (selected?.id === productId) {
+        setSelected(await request(`/storefront/products/${productId}`));
+      }
+      setToast("Review posted — checking content in the background");
     } catch (reason) {
-      setToast(reason.message || "Could not post this review");
+      setReviewComposerError(reason.message || "Could not post this review");
+    } finally {
+      setReviewComposerBusy(false);
     }
   }
 
@@ -1803,7 +1963,7 @@ export default function Storefront({ initialProductId = null }) {
       const updated = await patch("/auth/language", { language: languageCode });
       setAuth((current) => ({ ...current, user: { ...current.user, preferred_language: updated.preferred_language } }));
       const label = LANGUAGE_OPTIONS.find((opt) => opt.code === languageCode)?.label || languageCode;
-      setToast(`Language set to ${label} — Agent 5 will respond in this language`);
+      setToast(`Language set to ${label}`);
     } catch (reason) {
       setToast(reason.message || "Could not update language");
     }
@@ -1919,7 +2079,7 @@ export default function Storefront({ initialProductId = null }) {
       // Routes through the voice workflow (Agent 3 size RAG, then Agent 5 hands the
       // recommendation straight to Sarvam TTS) so the reply is spoken and transcribed
       // in the buyer's chosen language instead of a plain English-only toast.
-      const payload = await execute("Agent 3 is translating size history, Agent 5 is preparing a spoken answer…", () => post("/voice/query", { buyer_id: buyerId, product_id: selected.id, text: "Mujhe kaunsa size lena chahiye?", language }));
+      const payload = await execute("Size Saathi is translating size history and preparing a recommendation...", () => post("/voice/query", { buyer_id: buyerId, product_id: selected.id, text: "Mujhe kaunsa size lena chahiye?", language }));
       const recommendation = payload.results.size_translator?.data?.recommended_size;
       const voiceResult = payload.results.voice_qa;
       const message = voiceResult?.user_message?.[language] || voiceResult?.summary || "";
@@ -1931,7 +2091,7 @@ export default function Storefront({ initialProductId = null }) {
   async function checkReview() {
     if (!selected) return;
     try {
-      const payload = await execute("Agent 4 is summarizing all reviews…", () =>
+      const payload = await execute("Summarizing all reviews...", () =>
         postAndPoll("/reviews/summary", { product_id: selected.id })
       );
       const result = payload.results?.review_filter;
@@ -1944,7 +2104,7 @@ export default function Storefront({ initialProductId = null }) {
     const buyerId = auth?.user?.id || "B-001";
     const language = auth?.user?.preferred_language || "hi";
     try {
-      const payload = await execute("Agent 5 is grounding the answer…", () => post("/voice/query", { buyer_id: buyerId, product_id: selected.id, text: question, language }));
+      const payload = await execute("Retrieving verified details...", () => post("/voice/query", { buyer_id: buyerId, product_id: selected.id, text: question, language }));
       const result = payload.results?.voice_qa;
       setAgentAnswer(result?.user_message?.[language] || result?.summary || "");
       setVoiceAudioKey(result?.data?.audio_key || null);
@@ -1963,7 +2123,7 @@ export default function Storefront({ initialProductId = null }) {
       const extension = blob.type.includes("webm") ? "webm" : blob.type.includes("ogg") ? "ogg" : "wav";
       const presign = await post("/uploads/presign", { kind: "voice", filename: `question.${extension}`, content_type: blob.type || "audio/webm" });
       await fetch(presign.upload_url, { method: "PUT", body: blob, headers: { "Content-Type": blob.type || "audio/webm" } });
-      const payload = await execute("Agent 5 is transcribing and grounding your question…", () => post("/voice/query", { buyer_id: buyerId, product_id: selected.id, audio_key: presign.object_key, language }));
+      const payload = await execute("Transcribing and processing your question...", () => post("/voice/query", { buyer_id: buyerId, product_id: selected.id, audio_key: presign.object_key, language }));
       const result = payload.results?.voice_qa;
       setAgentAnswer(result?.user_message?.[language] || result?.summary || "");
       setVoiceAudioKey(result?.data?.audio_key || null);
@@ -2016,71 +2176,47 @@ export default function Storefront({ initialProductId = null }) {
     setBusy(true);
     try {
       const orderData = await createOrder(addressId, "prepaid");
-      if (!window.Razorpay) {
-        await new Promise((resolve, reject) => {
-          const script = document.createElement("script");
-          script.src = "https://checkout.razorpay.com/v1/checkout.js";
-          script.async = true;
-          script.onload = resolve;
-          script.onerror = reject;
-          document.body.appendChild(script);
-        });
-      }
-
       const selectedAddress = addresses.find((a) => a.id === addressId);
-
-      const options = {
-        key: orderData.razorpay.key_id,
-        amount: orderData.razorpay.amount,
-        currency: orderData.razorpay.currency,
-        name: "Kavach Saathi Store",
-        description: "Secure Checkout Payment",
-        order_id: orderData.razorpay.razorpay_order_id,
-        handler: async function (response) {
-          try {
-            setBusy(true);
-            const payment = await post(`/orders/${orderData.order_id}/verify-payment`, {
-              razorpay_order_id: response.razorpay_order_id,
-              razorpay_payment_id: response.razorpay_payment_id,
-              razorpay_signature: response.razorpay_signature,
-            });
-            setLastOrderId(orderData.order_id);
-            setLastOrderSummary({ amount: orderData.total_amount, paymentMode: "prepaid", address: selectedAddress });
-            setToast(
-              payment.delivery_confirmation_queued
-                ? "Payment verified — Agent 7 delivery verification is queued"
-                : "Payment verified, but delivery verification could not be queued"
-            );
-
-            await refreshCart();
-            await refreshAccountData();
-            setCheckoutStep("done");
-          } catch (err) {
-            setToast("Payment verification failed: " + err.message);
-          } finally {
-             setBusy(false);
-          }
-        },
-        prefill: {
-          name: auth?.user?.name,
-          contact: selectedAddress?.phone || ""
-        },
-        theme: {
-          color: "#e5484d"
-        },
-        modal: {
-          ondismiss: () => setToast("Payment was cancelled. Your cart is unchanged; you can retry checkout."),
-        },
-      };
-      const rzp = new window.Razorpay(options);
-      rzp.on("payment.failed", (response) => {
-        setToast(response.error?.description || "Payment failed. Your cart is unchanged; please retry.");
+      setCardPaymentData({
+        addressId,
+        amount: orderData.total_amount,
+        orderId: orderData.order_id,
+        selectedAddress
       });
-      rzp.open();
+      setCardPaymentError("");
     } catch (reason) {
-      setToast(reason.message || "Prepaid checkout failed");
+      setToast(reason.message || "Could not initialize prepaid order");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleCardPaymentSubmit({ cardNumber, expiryDate, cvv }) {
+    if (!cardPaymentData) return;
+    setCardPaymentBusy(true);
+    setCardPaymentError("");
+    const { orderId, selectedAddress } = cardPaymentData;
+    try {
+      const payment = await post(`/orders/${orderId}/verify-demo-payment`, {
+        card_number: cardNumber.replace(/\s/g, ""),
+        expiry_date: expiryDate,
+        cvv
+      });
+      setLastOrderId(orderId);
+      setLastOrderSummary({ amount: cardPaymentData.amount, paymentMode: "prepaid", address: selectedAddress });
+      setToast(
+        payment.delivery_confirmation_queued
+          ? "Payment verified — delivery verification call is scheduled"
+          : "Payment verified, but delivery verification could not be scheduled"
+      );
+      setCardPaymentData(null);
+      await refreshCart();
+      await refreshAccountData();
+      setCheckoutStep("done");
+    } catch (err) {
+      setCardPaymentError(err.message || "Payment failed");
+    } finally {
+      setCardPaymentBusy(false);
     }
   }
 
@@ -2122,6 +2258,8 @@ export default function Storefront({ initialProductId = null }) {
     );
   }
 
+  const isAccountPage = pathname && pathname.startsWith("/account/");
+
   return (
     <div className="storefront">
       <header className="site-header">
@@ -2157,49 +2295,495 @@ export default function Storefront({ initialProductId = null }) {
       </header>
 
       <main id="top">
-        <section className="hero">
-          <div className="hero-copy"><p><ShieldCheck size={14} /> AGENT-PROTECTED SHOPPING</p><h1>Smart shopping.<br /><em>Safer at every step.</em></h1><span>Discover value-first products while eight Kavach Saathi agents verify listings, sizes, reviews, delivery and returns.</span><div><button className="hero-primary" type="button" onClick={() => document.querySelector("#products")?.scrollIntoView({ behavior: "smooth" })}>Shop protected deals <ArrowRight size={18} /></button></div><small><Check size={13} /> Persistent evidence <Check size={13} /> Grounded AI <Check size={13} /> Fair return policy</small></div>
-          <div className="hero-visual"><div className="hero-product"><img src="/mock-assets/products/P-001.png" alt="Maroon hand-block kurta" /><span className="floating-check one"><Camera size={16} /><b>Image truth</b><small>Agent 1 passed</small></span><span className="floating-check two"><Sparkles size={16} /><b>Size XL</b><small>94% evidence</small></span><span className="floating-check three"><ShieldCheck size={16} /><b>Return fair</b><small>No auto-reject</small></span></div></div>
-        </section>
+        {pathname === "/account/cart" ? (
+          <CartDrawer items={cart} open={true} busyItem={cartBusy} onClose={() => router.push("/")} onUpdate={updateCartQuantity} onRemove={removeFromCart} onCheckout={() => requireAuth(() => { setDrawer("checkout"); setCheckoutStep("address"); })} fullScreen={true} />
+        ) : pathname === "/account/orders" ? (
+          <AccountDataDrawer type="orders" open={true} orders={orders} wishlist={wishlist} returns={returns} onClose={() => router.push("/")} onOpenProduct={(productId) => router.push(`/products/${productId}`)} onRemoveWishlist={(productId) => toggleWishlist({ id: productId })} onStartReturn={startReturn} onStartReview={startReview} onViewReturn={handleViewReturn} onSubmitFitFeedback={submitFitFeedback} onSimulateConfirmation={simulateConfirmation} fullScreen={true} />
+        ) : pathname === "/account/returns" ? (
+          <AccountDataDrawer type="returns" open={true} orders={orders} wishlist={wishlist} returns={returns} onClose={() => router.push("/")} onOpenProduct={(productId) => router.push(`/products/${productId}`)} onRemoveWishlist={(productId) => toggleWishlist({ id: productId })} onStartReturn={startReturn} onStartReview={startReview} onViewReturn={handleViewReturn} onSubmitFitFeedback={submitFitFeedback} onSimulateConfirmation={simulateConfirmation} fullScreen={true} />
+        ) : pathname === "/account/wishlist" ? (
+          <AccountDataDrawer type="wishlist" open={true} orders={orders} wishlist={wishlist} returns={returns} onClose={() => router.push("/")} onOpenProduct={(productId) => router.push(`/products/${productId}`)} onRemoveWishlist={(productId) => toggleWishlist({ id: productId })} onStartReturn={startReturn} onStartReview={startReview} onViewReturn={handleViewReturn} onSubmitFitFeedback={submitFitFeedback} onSimulateConfirmation={simulateConfirmation} fullScreen={true} />
+        ) : pathname === "/account/addresses" ? (
+          <AddressManagerDrawer open={true} onClose={() => router.push("/")} buyerId={auth?.user?.id} fullScreen={true} />
+        ) : (
+          <>
+            <section className="hero">
+              <div className="hero-copy"><p><ShieldCheck size={14} /> AGENT-PROTECTED SHOPPING</p><h1>Smart shopping.<br /><em>Safer at every step.</em></h1><span>Discover value-first products while eight Kavach Saathi agents verify listings, sizes, reviews, delivery and returns.</span><div><button className="hero-primary" type="button" onClick={() => document.querySelector("#products")?.scrollIntoView({ behavior: "smooth" })}>Shop protected deals <ArrowRight size={18} /></button></div><small><Check size={13} /> Persistent evidence <Check size={13} /> Grounded AI <Check size={13} /> Fair return policy</small></div>
+              <div className="hero-visual"><div className="hero-product"><img src="/mock-assets/products/P-001.png" alt="Maroon hand-block kurta" /><span className="floating-check one"><Camera size={16} /><b>Image truth</b><small>Agent 1 passed</small></span><span className="floating-check two"><Sparkles size={16} /><b>Size XL</b><small>94% evidence</small></span><span className="floating-check three"><ShieldCheck size={16} /><b>Return fair</b><small>No auto-reject</small></span></div></div>
+            </section>
 
-        <section className="trust-ribbon">
-          <div><span><Camera /></span><p><strong>Authentic listings</strong><small>Copied photos detected</small></p></div>
-          <div><span><Sparkles /></span><p><strong>Size that travels</strong><small>Across every seller chart</small></p></div>
-          <div><span><MessageCircle /></span><p><strong>Review truth</strong><small>Text stays, fake media hides</small></p></div>
-          <div><span><MapPin /></span><p><strong>Address confidence</strong><small>Coordinates + DIGIPIN</small></p></div>
-          <div><span><RotateCcw /></span><p><strong>Fair returns</strong><small>Evidence before decisions</small></p></div>
-        </section>
+            <section className="trust-ribbon">
+              <div><span><Camera /></span><p><strong>Authentic listings</strong><small>Copied photos detected</small></p></div>
+              <div><span><Sparkles /></span><p><strong>Size that travels</strong><small>Across every seller chart</small></p></div>
+              <div><span><MessageCircle /></span><p><strong>Review truth</strong><small>Text stays, fake media hides</small></p></div>
+              <div><span><MapPin /></span><p><strong>Address confidence</strong><small>Coordinates + DIGIPIN</small></p></div>
+              <div><span><RotateCcw /></span><p><strong>Fair returns</strong><small>Evidence before decisions</small></p></div>
+            </section>
 
-        <section className="catalogue-proof" aria-label="Catalogue data summary">
-          <div><strong>{products.length || 500}</strong><span>Detailed products</span></div>
-          <div><strong>50</strong><span>Products in every category</span></div>
-          <div><strong>{Math.max(categories.length - 1, 10)}</strong><span>Marketplace categories</span></div>
-          <div><strong>1,000</strong><span>Review evidence records</span></div>
-          <div><strong>8</strong><span>Orchestrated safety agents</span></div>
-        </section>
+            <section className="catalogue-proof" aria-label="Catalogue data summary">
+              <div><strong>{products.length || 500}</strong><span>Detailed products</span></div>
+              <div><strong>50</strong><span>Products in every category</span></div>
+              <div><strong>{Math.max(categories.length - 1, 10)}</strong><span>Marketplace categories</span></div>
+              <div><strong>1,000</strong><span>Review evidence records</span></div>
+              <div><strong>8</strong><span>Orchestrated safety agents</span></div>
+            </section>
 
-        <section className="catalogue" id="products">
-          <div className="section-heading"><div><p>{category === "All" ? "ALL 10 CATEGORIES REPRESENTED" : category.toUpperCase()}</p><h2>Products worth discovering</h2></div><span>Showing {displayedProducts.length} of {visibleProducts.length} products · {category === "All" ? "50 available in every category" : "Full category catalogue"}</span></div>
-          {error && <div className="error-state"><ShieldCheck /><p><strong>Storefront API is unavailable.</strong>{error}</p></div>}
-          {loading ? <div className="loading-grid">{Array.from({ length: 10 }, (_, index) => <div key={index}></div>)}</div> : <><div className="product-grid">{displayedProducts.map((product) => <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} onWishlist={toggleWishlist} wished={wishlist.some((item) => item.product.id === product.id)} pending={cartBusy === variantIdFor(product, "Standard")} />)}</div>{displayedProducts.length < visibleProducts.length && <button className="load-more" type="button" onClick={() => setVisibleCount((count) => count + 50)}>Load 50 more products <ChevronRight size={16} /></button>}</>}
-        </section>
+            <section className="catalogue" id="products">
+              <div className="section-heading"><div><p>{category === "All" ? "ALL 10 CATEGORIES REPRESENTED" : category.toUpperCase()}</p><h2>Products worth discovering</h2></div><span>Showing {displayedProducts.length} of {visibleProducts.length} products · {category === "All" ? "50 available in every category" : "Full category catalogue"}</span></div>
+              {error && <div className="error-state"><ShieldCheck /><p><strong>Storefront API is unavailable.</strong>{error}</p></div>}
+              {loading ? <div className="loading-grid">{Array.from({ length: 10 }, (_, index) => <div key={index}></div>)}</div> : <><div className="product-grid">{displayedProducts.map((product) => <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} onWishlist={toggleWishlist} wished={wishlist.some((item) => item.product.id === product.id)} pending={cartBusy === variantIdFor(product, "Standard")} />)}</div>{displayedProducts.length < visibleProducts.length && <button className="load-more" type="button" onClick={() => setVisibleCount((count) => count + 50)}>Load 50 more products <ChevronRight size={16} /></button>}</>}
+            </section>
 
-        <section className="safety-story">
-          <div><p>ONE ORCHESTRATOR</p><h2>Protection follows the order,<br />not a separate dashboard.</h2></div>
-          <div className="story-steps">{Object.entries(AGENTS).map(([key, agent]) => { const Icon = agent.icon; return <div className="story-step" key={key}><span>{agent.number}</span><Icon size={19} /><strong>{agent.short}</strong></div>; })}</div>
-        </section>
+            <section className="safety-story">
+              <div><p>ONE ORCHESTRATOR</p><h2>Protection follows the order,<br />not a separate dashboard.</h2></div>
+              <div className="story-steps">{Object.entries(AGENTS).map(([key, agent]) => { const Icon = agent.icon; return <div className="story-step" key={key}><span>{agent.number}</span><Icon size={19} /><strong>{agent.short}</strong></div>; })}</div>
+            </section>
+          </>
+        )}
       </main>
 
       <footer className="site-footer"><a className="logo inverse" href="#top"><span>K</span><div><strong>Kavach</strong><small>SAATHI SHOP</small></div></a><p>Agent-protected commerce with persistent evidence and auditable decisions.</p><div><a href="http://localhost:8000/docs" target="_blank" rel="noreferrer">API docs</a></div></footer>
 
-      <CartDrawer items={cart} open={drawer === "cart"} busyItem={cartBusy} onClose={() => setDrawer(null)} onUpdate={updateCartQuantity} onRemove={removeFromCart} onCheckout={() => requireAuth(() => { setDrawer("checkout"); setCheckoutStep("address"); })} />
-      <CheckoutDrawer open={drawer === "checkout"} busy={busy} step={checkoutStep} orderId={lastOrderId} orderSummary={lastOrderSummary} onClose={() => setDrawer(null)} onGoOrders={() => setDrawer("orders")} onConfirm={confirmOrder} onConfirmPrepaid={confirmOrderPrepaid} addresses={addresses} onManageAddresses={() => setDrawer("addresses")} buyerName={auth?.user?.name} />
-      <AddressManagerDrawer open={drawer === "addresses"} onClose={() => { setDrawer(null); refreshAccountData(); }} buyerId={auth?.user?.id} />
-      <AccountDataDrawer type={drawer} open={["orders", "wishlist", "returns"].includes(drawer)} orders={orders} wishlist={wishlist} returns={returns} onClose={() => setDrawer(null)} onOpenProduct={(productId) => router.push(`/products/${productId}`)} onRemoveWishlist={(productId) => toggleWishlist({ id: productId })} onStartReturn={startReturn} onStartReview={startReview} onViewReturn={handleViewReturn} onSubmitFitFeedback={submitFitFeedback} onSimulateConfirmation={simulateConfirmation} />
+      {!isAccountPage && <CartDrawer items={cart} open={drawer === "cart"} busyItem={cartBusy} onClose={() => setDrawer(null)} onUpdate={updateCartQuantity} onRemove={removeFromCart} onCheckout={() => requireAuth(() => { setDrawer("checkout"); setCheckoutStep("address"); })} />}
+      <CheckoutDrawer open={drawer === "checkout"} busy={busy} step={checkoutStep} orderId={lastOrderId} orderSummary={lastOrderSummary} onClose={() => setDrawer(null)} onGoOrders={() => router.push("/account/orders")} onConfirm={confirmOrder} onConfirmPrepaid={confirmOrderPrepaid} addresses={addresses} onManageAddresses={() => router.push("/account/addresses")} buyerName={auth?.user?.name} />
+      {!isAccountPage && <AddressManagerDrawer open={drawer === "addresses"} onClose={() => { setDrawer(null); refreshAccountData(); }} buyerId={auth?.user?.id} />}
+      {!isAccountPage && <AccountDataDrawer type={drawer} open={["orders", "wishlist", "returns"].includes(drawer)} orders={orders} wishlist={wishlist} returns={returns} onClose={() => setDrawer(null)} onOpenProduct={(productId) => router.push(`/products/${productId}`)} onRemoveWishlist={(productId) => toggleWishlist({ id: productId })} onStartReturn={startReturn} onStartReview={startReview} onViewReturn={handleViewReturn} onSubmitFitFeedback={submitFitFeedback} onSimulateConfirmation={simulateConfirmation} />}
       <ReturnVerificationDrawer open={drawer === "return-verify"} returnId={selectedReturnId} returns={returns} orders={orders} onClose={() => { setDrawer(null); refreshAccountData(); }} onRefreshData={refreshAccountData} />
       <AuthModal open={authModalOpen} onClose={() => { setAuthModalOpen(false); setPendingAfterAuth(null); }} onAuthenticated={handleAuthenticated} />
       <ReviewSummaryDialog data={reviewSummary} onClose={() => setReviewSummary(null)} />
+
+      {returnRequestData && (
+        <ReturnRequestDialog
+          isOpen={true}
+          onClose={() => setReturnRequestData(null)}
+          onConfirm={handleReturnRequestSubmit}
+          busy={returnRequestBusy}
+          error={returnRequestError}
+          returnType={returnRequestData.returnType}
+        />
+      )}
+      {reviewComposerData && (
+        <ReviewComposerDialog
+          isOpen={true}
+          onClose={() => setReviewComposerData(null)}
+          onSubmit={handleReviewComposerSubmit}
+          busy={reviewComposerBusy}
+          error={reviewComposerError}
+          orderId={reviewComposerData.orderId}
+          product={orders.find((order) => order.id === reviewComposerData.orderId)?.items.find((item) => item.product_id === reviewComposerData.productId)}
+        />
+      )}
+      {confirmationCallData && (
+        <ConfirmationCallDialog
+          isOpen={true}
+          onClose={() => setConfirmationCallData(null)}
+          onConfirm={handleConfirmationCallSubmit}
+          busy={confirmationCallBusy}
+          error={confirmationCallError}
+        />
+      )}
+      {actionDialogConfig && (
+        <ActionDialog
+          isOpen={true}
+          onClose={() => setActionDialogConfig(null)}
+          {...actionDialogConfig}
+        />
+      )}
+      {cardPaymentData && (
+        <CardPaymentDialog
+          key={cardPaymentData.orderId}
+          isOpen={true}
+          onClose={() => setCardPaymentData(null)}
+          onSubmit={handleCardPaymentSubmit}
+          amount={cardPaymentData.amount}
+          busy={cardPaymentBusy}
+          error={cardPaymentError}
+        />
+      )}
       {toast && <div className="toast" role="status" aria-live="polite"><Check size={16} /> {toast}</div>}
     </div>
+  );
+}
+
+function Modal({ isOpen, onClose, title, children }) {
+  const modalRef = useRef(null);
+  const previouslyFocusedRef = useRef(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") onClose();
+      if (e.key !== "Tab" || !modalRef.current) return;
+      const focusable = Array.from(modalRef.current.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ));
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    if (isOpen) {
+      previouslyFocusedRef.current = document.activeElement;
+      document.addEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "hidden";
+
+      // Focus trapping
+      const focusable = modalRef.current?.querySelectorAll(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusable && focusable.length > 0) {
+        focusable[0].focus();
+      }
+    }
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "";
+      previouslyFocusedRef.current?.focus?.();
+    };
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.5)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}>
+      <button style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", background: "none", border: "none" }} onClick={onClose} aria-label="Close modal" />
+      <div ref={modalRef} role="dialog" aria-modal="true" style={{ background: "white", padding: "24px", borderRadius: "12px", width: "100%", maxWidth: "450px", display: "flex", flexDirection: "column", gap: "16px", boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1)", position: "relative", zIndex: 3001 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--line)", paddingBottom: "12px" }}>
+          <h3 style={{ margin: 0, fontSize: "16px", fontWeight: "600" }}>{title}</h3>
+          <button type="button" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }} aria-label="Close modal button"><X size={20} /></button>
+        </div>
+        <div style={{ overflowY: "auto", maxHeight: "70vh" }}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmDeleteDialog({ isOpen, onClose, onConfirm, deleting, error }) {
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Confirm Address Deletion">
+      <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+        <p style={{ margin: 0, fontSize: "14px", color: "#475569" }}>
+          Are you sure you want to delete this address? This action cannot be undone.
+        </p>
+        {error && <div style={{ color: "#ef4444", fontSize: "13px", fontWeight: "600" }}>{error}</div>}
+        <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
+          <button type="button" className="secondary-cta" onClick={onClose} disabled={deleting}>Cancel</button>
+          <button type="button" className="primary-cta" onClick={onConfirm} disabled={deleting}>
+            {deleting ? <LoaderCircle className="spin" size={14} /> : null}
+            Delete
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function ReturnRequestDialog({ isOpen, onClose, onConfirm, busy, error, returnType }) {
+  const [reason, setReason] = useState("");
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={`${returnType === "exchange" ? "Exchange" : "Return"} Request`}>
+      <form onSubmit={(e) => { e.preventDefault(); onConfirm(reason); }} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+        <div>
+          <label htmlFor="return-reason" style={{ display: "block", marginBottom: "6px", fontWeight: "600", fontSize: "13px" }}>
+            Why are you {returnType === "exchange" ? "exchanging" : "returning"} this product?
+          </label>
+          <textarea
+            id="return-reason"
+            required
+            rows={4}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Please describe the issue in detail..."
+            style={{ width: "100%", padding: "10px", border: "1px solid var(--border)", borderRadius: "6px", resize: "none" }}
+          />
+        </div>
+        {error && <div style={{ color: "#ef4444", fontSize: "13px", fontWeight: "600" }}>{error}</div>}
+        <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end", borderTop: "1px solid var(--line)", paddingTop: "12px" }}>
+          <button type="button" className="secondary-cta" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="submit" className="primary-cta" disabled={busy || !reason.trim()}>
+            {busy ? <LoaderCircle className="spin" size={14} /> : null}
+            Submit Request
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function ReviewComposerDialog({ isOpen, onClose, onSubmit, busy, error, product, orderId }) {
+  const [rating, setRating] = useState(5);
+  const [text, setText] = useState("");
+  const [file, setFile] = useState(null);
+  const [fileError, setFileError] = useState("");
+  const previewUrl = useMemo(() => (file ? URL.createObjectURL(file) : ""), [file]);
+
+  useEffect(() => () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+  }, [previewUrl]);
+
+  const handleFileChange = (e) => {
+    const selected = e.target.files?.[0];
+    if (!selected) return;
+    if (!selected.type.startsWith("image/")) {
+      setFileError("Please select a valid image file.");
+      setFile(null);
+      return;
+    }
+    if (selected.size > 5 * 1024 * 1024) {
+      setFileError("Image size must be under 5MB.");
+      setFile(null);
+      return;
+    }
+    setFileError("");
+    setFile(selected);
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onSubmit({ rating, text, file });
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Review this product">
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+        <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+          {product?.image_url && <img src={assetUrl(product.image_url)} alt="" style={{ width: 56, height: 56, borderRadius: 8, objectFit: "cover" }} />}
+          <div><strong style={{ display: "block", fontSize: 14 }}>{product?.product_name || "Purchased product"}</strong><small style={{ color: "#64748b" }}>Order {orderId}</small></div>
+        </div>
+        <div>
+          <span style={{ display: "block", marginBottom: "6px", fontWeight: "600", fontSize: "13px" }}>Rating</span>
+          <div role="radiogroup" aria-label="Rating" style={{ display: "flex", gap: 4 }}>
+            {[1, 2, 3, 4, 5].map((value) => <button key={value} type="button" role="radio" aria-checked={rating === value} aria-label={`${value} star${value === 1 ? "" : "s"}`} onClick={() => setRating(value)} style={{ border: 0, background: "none", padding: 3, cursor: "pointer", color: value <= rating ? "#f59e0b" : "#cbd5e1" }}><Star size={26} fill="currentColor" /></button>)}
+          </div>
+        </div>
+        <div>
+          <label htmlFor="review-text" style={{ display: "block", marginBottom: "6px", fontWeight: "600", fontSize: "13px" }}>Review Details</label>
+          <textarea
+            id="review-text"
+            rows={4}
+            value={text}
+            maxLength={2000}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Write your review here..."
+            style={{ width: "100%", padding: "10px", border: "1px solid var(--border)", borderRadius: "6px", resize: "none" }}
+          />
+          <small style={{ display: "block", textAlign: "right", color: "#64748b" }}>{text.length}/2000</small>
+        </div>
+
+        <div>
+          <label htmlFor="review-photo" style={{ display: "block", marginBottom: "6px", fontWeight: "600", fontSize: "13px" }}>Attach Photo (Optional)</label>
+          <input
+            id="review-photo"
+            type="file"
+            accept="image/*"
+            onChange={handleFileChange}
+            style={{ display: "block", width: "100%" }}
+          />
+          {fileError && <div style={{ color: "#ef4444", fontSize: "12px", marginTop: "4px" }}>{fileError}</div>}
+          <small style={{ color: "#64748b" }}>JPG, PNG, or WebP; maximum 5 MB.</small>
+          {previewUrl && <div style={{ marginTop: 8, display: "flex", gap: 10, alignItems: "center" }}><img src={previewUrl} alt="Review upload preview" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8 }} /><button type="button" className="secondary-cta compact" onClick={() => setFile(null)}>Remove photo</button></div>}
+        </div>
+
+        {error && <div style={{ color: "#ef4444", fontSize: "13px", fontWeight: "600" }}>{error}</div>}
+        <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end", borderTop: "1px solid var(--line)", paddingTop: "12px" }}>
+          <button type="button" className="secondary-cta" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="submit" className="primary-cta" disabled={busy || fileError}>
+            {busy ? <LoaderCircle className="spin" size={14} /> : null}
+            Submit Review
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function ConfirmationCallDialog({ isOpen, onClose, onConfirm, busy, error }) {
+  const [decision, setDecision] = useState("confirmed");
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onConfirm(decision);
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Simulate Confirmation Call">
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+        <p style={{ margin: 0, fontSize: "14px", color: "#475569" }}>
+          Simulate the buyer&apos;s phone reply to verify availability before delivery confirmation.
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          {[
+            { value: "confirmed", label: "Confirmed (Schedule Delivery)" },
+            { value: "reschedule", label: "Reschedule Call (Verify availability later)" },
+            { value: "cancel", label: "Cancel Order (Buyer requested cancellation)" }
+          ].map((option) => (
+            <label
+              key={option.value}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                padding: "10px",
+                border: "1px solid var(--border)",
+                borderRadius: "6px",
+                cursor: "pointer",
+                background: decision === option.value ? "#fdf0f0" : "none",
+                borderColor: decision === option.value ? "var(--accent, #e5484d)" : "var(--border)"
+              }}
+            >
+              <input
+                type="radio"
+                name="decision"
+                value={option.value}
+                checked={decision === option.value}
+                onChange={() => setDecision(option.value)}
+              />
+              <span style={{ fontSize: "14px", fontWeight: "500" }}>{option.label}</span>
+            </label>
+          ))}
+        </div>
+        {error && <div style={{ color: "#ef4444", fontSize: "13px", fontWeight: "600" }}>{error}</div>}
+        <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
+          <button type="button" className="secondary-cta" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="submit" className="primary-cta" disabled={busy}>
+            {busy ? <LoaderCircle className="spin" size={14} /> : null}
+            Submit Response
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function ActionDialog({ isOpen, onClose, title, text, type = "info" }) {
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={title}>
+      <div style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
+        {type === "error" ? (
+          <ShieldAlert size={24} color="#ef4444" style={{ flexShrink: 0 }} />
+        ) : type === "warning" ? (
+          <AlertTriangle size={24} color="#d97706" style={{ flexShrink: 0 }} />
+        ) : (
+          <ShieldCheck size={24} color="var(--plum)" style={{ flexShrink: 0 }} />
+        )}
+        <p style={{ margin: 0, fontSize: "14px", color: "#475569", lineHeight: "1.5" }}>
+          {text}
+        </p>
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", borderTop: "1px solid var(--line)", paddingTop: "12px" }}>
+        <button type="button" className="primary-cta" onClick={onClose}>
+          OK
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function CardPaymentDialog({ isOpen, onClose, onSubmit, amount, busy, error }) {
+  const [cardNumber, setCardNumber] = useState("");
+  const [expiryDate, setExpiryDate] = useState("");
+  const [cvv, setCvv] = useState("");
+
+
+
+  const handleCardNumberChange = (e) => {
+    const value = e.target.value.replace(/\D/g, "").slice(0, 16);
+    const matches = value.match(/\d{4,16}/g);
+    const match = (matches && matches[0]) || "";
+    const parts = [];
+
+    for (let i = 0, len = match.length; i < len; i += 4) {
+      parts.push(match.substring(i, i + 4));
+    }
+
+    if (parts.length > 0) {
+      setCardNumber(parts.join(" "));
+    } else {
+      setCardNumber(value);
+    }
+  };
+
+  const handleExpiryChange = (e) => {
+    const value = e.target.value.replace(/\D/g, "").slice(0, 4);
+    if (value.length >= 2) {
+      setExpiryDate(`${value.slice(0, 2)}/${value.slice(2, 4)}`);
+    } else {
+      setExpiryDate(value);
+    }
+  };
+
+  const handleCvvChange = (e) => {
+    const value = e.target.value.replace(/\D/g, "").slice(0, 3);
+    setCvv(value);
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onSubmit({ cardNumber, expiryDate, cvv });
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Secure Card Payment">
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+        <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>
+          Please enter your test credit or debit card details to complete the payment.
+        </p>
+
+        <div>
+          <label htmlFor="card-number" style={{ display: "block", marginBottom: "6px", fontWeight: "600", fontSize: "13px" }}>Card Number</label>
+          <input
+            id="card-number"
+            required
+            placeholder="4111 1111 1111 1111"
+            value={cardNumber}
+            onChange={handleCardNumberChange}
+            style={{ width: "100%", padding: "10px", border: "1px solid var(--border)", borderRadius: "6px" }}
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: "12px" }}>
+          <div style={{ flex: 1 }}>
+            <label htmlFor="expiry" style={{ display: "block", marginBottom: "6px", fontWeight: "600", fontSize: "13px" }}>Expiry Date</label>
+            <input
+              id="expiry"
+              required
+              placeholder="MM/YY"
+              value={expiryDate}
+              onChange={handleExpiryChange}
+              style={{ width: "100%", padding: "10px", border: "1px solid var(--border)", borderRadius: "6px" }}
+            />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label htmlFor="cvv" style={{ display: "block", marginBottom: "6px", fontWeight: "600", fontSize: "13px" }}>CVV</label>
+            <input
+              id="cvv"
+              required
+              placeholder="123"
+              type="password"
+              value={cvv}
+              onChange={handleCvvChange}
+              style={{ width: "100%", padding: "10px", border: "1px solid var(--border)", borderRadius: "6px" }}
+            />
+          </div>
+        </div>
+
+        {error && <div style={{ color: "#ef4444", fontSize: "13px", fontWeight: "600" }}>{error}</div>}
+        <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end", borderTop: "1px solid var(--line)", paddingTop: "12px" }}>
+          <button type="button" className="secondary-cta" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="submit" className="primary-cta" disabled={busy || cardNumber.replace(/\s/g, "").length !== 16 || expiryDate.length !== 5 || cvv.length !== 3}>
+            {busy ? <LoaderCircle className="spin" size={14} /> : null}
+            Pay {money(amount)}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }

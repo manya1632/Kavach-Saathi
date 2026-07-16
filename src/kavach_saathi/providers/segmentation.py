@@ -26,26 +26,8 @@ class GarmentSegmenter:
     def _load(cls) -> None:
         if cls._model is not None:
             return
-        # Listing analysis runs Agents 1 and 2 concurrently and both use this
-        # segmenter. Two simultaneous `from_pretrained` calls can expose a
-        # half-initialized Accelerate model whose weights are still on the `meta`
-        # device. Load into locals under a process-wide lock and publish the pair
-        # only after every tensor is materialized on CPU.
-        with cls._load_lock:
-            if cls._model is not None:
-                return
-            from transformers import Sam2Model, Sam2Processor
-
-            model = Sam2Model.from_pretrained(
-                _SAM2_CHECKPOINT,
-                device_map=None,
-                low_cpu_mem_usage=False,
-            )
-            processor = Sam2Processor.from_pretrained(_SAM2_CHECKPOINT)
-            model.to("cpu")
-            model.eval()
-            cls._processor = processor
-            cls._model = model
+        from kavach_saathi.model_registry import get_sam2
+        cls._model, cls._processor = get_sam2()
 
     def segment(self, image_bytes: bytes) -> bytes:
         """Return a PNG of the input image with the background alpha-masked out,

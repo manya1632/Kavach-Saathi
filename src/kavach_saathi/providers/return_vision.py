@@ -23,23 +23,16 @@ class ReturnVisionVerifier:
     def _load_clip(cls) -> None:
         if cls._clip_model is not None:
             return
-        from transformers import CLIPModel, CLIPProcessor
-
-        cls._clip_model = CLIPModel.from_pretrained(_CLIP_CHECKPOINT)
-        cls._clip_processor = CLIPProcessor.from_pretrained(_CLIP_CHECKPOINT)
-        cls._clip_model.eval()
+        from kavach_saathi.config import get_settings
+        from kavach_saathi.model_registry import get_clip
+        cls._clip_model, cls._clip_processor = get_clip(get_settings())
 
     @classmethod
     def _load_resnet(cls) -> None:
         if cls._resnet_model is not None:
             return
-        import torch
-        from torchvision.models import ResNet50_Weights, resnet50
-
-        weights = ResNet50_Weights.IMAGENET1K_V2
-        model = resnet50(weights=weights)
-        model.fc = torch.nn.Identity()  # drop the classification head -- we want the pooled feature embedding
-        model.eval()
+        from kavach_saathi.model_registry import get_resnet
+        weights, model = get_resnet()
         cls._resnet_model = model
         cls._resnet_transform = weights.transforms()
 
@@ -93,7 +86,16 @@ class ReturnVisionVerifier:
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         batch = self._resnet_transform(image).unsqueeze(0)
         with torch.no_grad():
-            embedding = self._resnet_model(batch)
+            x = self._resnet_model.conv1(batch)
+            x = self._resnet_model.bn1(x)
+            x = self._resnet_model.relu(x)
+            x = self._resnet_model.maxpool(x)
+            x = self._resnet_model.layer1(x)
+            x = self._resnet_model.layer2(x)
+            x = self._resnet_model.layer3(x)
+            x = self._resnet_model.layer4(x)
+            x = self._resnet_model.avgpool(x)
+            embedding = torch.flatten(x, 1)
         return embedding / embedding.norm(dim=-1, keepdim=True)
 
     def best_match(self, candidate_frames: list[bytes], reference_image_bytes: bytes) -> tuple[float, bytes | None]:

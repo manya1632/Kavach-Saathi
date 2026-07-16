@@ -97,6 +97,9 @@ def get_resnet() -> tuple[Any, Any]:
         return _resnet50_weights, _resnet50_model
 
 
+_SAM2_CHECKPOINT = "facebook/sam2.1-hiera-tiny"
+
+
 def get_sam2() -> tuple[Any, Any]:
     global _sam2_model, _sam2_processor
     if _sam2_model is not None and _sam2_processor is not None:
@@ -107,12 +110,26 @@ def get_sam2() -> tuple[Any, Any]:
             return _sam2_model, _sam2_processor
 
         t0 = time.perf_counter()
-        logger.info("Loading SAM2 model 'facebook/sam2-hiera-tiny'...")
-        from sam2.modeling.sam2_model import Sam2Model
-        from sam2.processing.sam2_processor import Sam2Processor
+        logger.info(f"Loading SAM2 model '{_SAM2_CHECKPOINT}'...")
+        # `transformers`' own Sam2Model/Sam2Processor -- the standalone `sam2` package
+        # isn't a project dependency. Once cached, `from_pretrained`'s default online
+        # ETag check against the Hub can itself take minutes even though no download is
+        # needed (observed live) -- try cache-only first, fall back to network only if
+        # the cache is genuinely missing.
+        from transformers import Sam2Model, Sam2Processor
 
-        _sam2_model = Sam2Model.from_pretrained("facebook/sam2-hiera-tiny")
-        _sam2_processor = Sam2Processor.from_pretrained("facebook/sam2-hiera-tiny")
+        try:
+            model = Sam2Model.from_pretrained(
+                _SAM2_CHECKPOINT, device_map=None, low_cpu_mem_usage=False, local_files_only=True
+            )
+            processor = Sam2Processor.from_pretrained(_SAM2_CHECKPOINT, local_files_only=True)
+        except OSError:
+            model = Sam2Model.from_pretrained(_SAM2_CHECKPOINT, device_map=None, low_cpu_mem_usage=False)
+            processor = Sam2Processor.from_pretrained(_SAM2_CHECKPOINT)
+        model.to("cpu")
+        model.eval()
+        _sam2_model = model
+        _sam2_processor = processor
         logger.info(f"Loaded SAM2 in {time.perf_counter() - t0:.2f}s")
         return _sam2_model, _sam2_processor
 
@@ -149,11 +166,30 @@ def get_stable_diffusion() -> Any:
         import torch
         from diffusers import ControlNetModel, StableDiffusionControlNetPipeline
 
-        controlnet = ControlNetModel.from_pretrained("lllyasviel/sd-controlnet-canny", torch_dtype=torch.float32)
-        _sd_pipeline = StableDiffusionControlNetPipeline.from_pretrained(
-            "runwayml/stable-diffusion-v1-5", controlnet=controlnet, torch_dtype=torch.float32, safety_checker=None
-        )
-        _sd_pipeline.set_progress_bar_config(disable=True)
+        sd_checkpoint = "runwayml/stable-diffusion-v1-5"
+        controlnet_checkpoint = "lllyasviel/sd-controlnet-canny"
+        # Once these checkpoints are cached, `from_pretrained`'s default online ETag
+        # check against the Hub can itself take minutes (observed live) even though no
+        # actual download is needed -- try cache-only first, fall back to network only
+        # if the cache is genuinely missing.
+        try:
+            controlnet = ControlNetModel.from_pretrained(
+                controlnet_checkpoint, torch_dtype=torch.float32, local_files_only=True
+            )
+            pipeline = StableDiffusionControlNetPipeline.from_pretrained(
+                sd_checkpoint,
+                controlnet=controlnet,
+                torch_dtype=torch.float32,
+                safety_checker=None,
+                local_files_only=True,
+            )
+        except OSError:
+            controlnet = ControlNetModel.from_pretrained(controlnet_checkpoint, torch_dtype=torch.float32)
+            pipeline = StableDiffusionControlNetPipeline.from_pretrained(
+                sd_checkpoint, controlnet=controlnet, torch_dtype=torch.float32, safety_checker=None
+            )
+        pipeline.set_progress_bar_config(disable=True)
+        _sd_pipeline = pipeline
         logger.info(f"Loaded Stable Diffusion in {time.perf_counter() - t0:.2f}s")
         return _sd_pipeline
 

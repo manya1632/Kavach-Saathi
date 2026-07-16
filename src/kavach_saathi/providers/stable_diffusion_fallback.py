@@ -5,9 +5,6 @@ import io
 from kavach_saathi.config import Settings
 from kavach_saathi.providers.nano_banana import VIEW_PROMPTS
 
-_SD_CHECKPOINT = "runwayml/stable-diffusion-v1-5"
-_CONTROLNET_CHECKPOINT = "lllyasviel/sd-controlnet-canny"
-
 
 class StableDiffusionFallback:
     """Self-hosted Stable Diffusion + ControlNet fallback, conditioned on the SAM
@@ -16,6 +13,8 @@ class StableDiffusionFallback:
 
     CPU inference is slow (roughly a minute or more per image on a laptop CPU) — this
     is a genuine, documented performance characteristic of self-hosting, not a stub.
+    Loading is delegated to `model_registry.get_stable_diffusion()`, a process-wide
+    cache shared across every agent that needs this pipeline.
     """
 
     _pipeline = None
@@ -55,7 +54,7 @@ class StableDiffusionFallback:
         result = self._pipeline(
             prompt=prompt,
             image=control_image,
-            num_inference_steps=20,
+            num_inference_steps=10,
             generator=generator,
         )
         output_image = result.images[0]

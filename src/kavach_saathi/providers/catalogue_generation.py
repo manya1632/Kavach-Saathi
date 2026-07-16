@@ -6,6 +6,7 @@ from typing import Any
 
 from kavach_saathi.config import Settings
 from kavach_saathi.media_storage import read_image_bytes, write_generated_image
+from kavach_saathi.providers.huggingface_image import HuggingFaceImageClient, HuggingFaceImageUnavailable
 from kavach_saathi.providers.nano_banana import NanoBananaClient, NanoBananaQuotaExceeded, NanoBananaUnavailable
 from kavach_saathi.providers.segmentation import GarmentSegmenter
 from kavach_saathi.providers.stable_diffusion_fallback import StableDiffusionFallback
@@ -16,16 +17,18 @@ VIEWS = ("front", "back", "left", "right")
 
 class CatalogueImageGenerator:
     """Agent 1's real image-gen pipeline (final target plan.md Section 6):
-    SAM 2.0 segmentation -> Nano Banana 2 (Gemini) primary generation, with a
-    Redis-tracked daily quota and an automatic Stable Diffusion + ControlNet fallback,
-    conditioned on the same segmented garment so output stays visually consistent
-    regardless of which provider actually served the request.
+    SAM 2.0 segmentation -> Nano Banana 2 (Gemini) primary generation -> Hugging
+    Face Inference API (FLUX.1 Kontext, GPU-backed, ~10s/image) fast fallback ->
+    self-hosted Stable Diffusion + ControlNet (CPU, ~1min+/image) last-resort
+    fallback, all conditioned on the same segmented garment so output stays visually
+    consistent regardless of which provider actually served the request.
     """
 
     def __init__(self, settings: Settings):
         self.settings = settings
         self.segmenter = GarmentSegmenter(settings)
         self.nano_banana = NanoBananaClient(settings)
+        self.huggingface = HuggingFaceImageClient(settings)
         self.sd_fallback = StableDiffusionFallback(settings)
 
     async def generate(self, image_keys: list[str], product: dict[str, Any]) -> list[dict[str, Any]]:
@@ -51,6 +54,13 @@ class CatalogueImageGenerator:
                         provider_used = "nano_banana_2"
                     except (NanoBananaQuotaExceeded, NanoBananaUnavailable):
                         image_bytes = None
+
+            if image_bytes is None and self.settings.huggingface_api_key:
+                try:
+                    image_bytes = await self.huggingface.generate_view(garment_png, view)
+                    provider_used = "huggingface_flux_kontext"
+                except HuggingFaceImageUnavailable:
+                    image_bytes = None
 
             if image_bytes is None:
                 image_bytes = await self.sd_fallback.generate_view(garment_png, view, seed=seed_base + index)

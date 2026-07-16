@@ -1,23 +1,20 @@
 from __future__ import annotations
 
 import io
-import threading
 
 from kavach_saathi.config import Settings
-
-_SAM2_CHECKPOINT = "facebook/sam2.1-hiera-tiny"
 
 
 class GarmentSegmenter:
     """SAM 2.0 garment segmentation (final target plan.md Section 6, Agent 1 step (a)).
 
-    Self-hosted via `transformers`' SAM2 support — no API key required. The model is
-    lazy-loaded once per process (first call downloads the checkpoint from the HF Hub).
+    Self-hosted via `transformers`' SAM2 support — no API key required. Loading is
+    delegated to `model_registry.get_sam2()`, a process-wide cache shared across
+    every agent that needs this model.
     """
 
     _model = None
     _processor = None
-    _load_lock = threading.Lock()
 
     def __init__(self, settings: Settings | None = None):
         self.settings = settings

@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     gemini_image_model: str = "gemini-3.1-flash-image"
     gemini_reasoning_model: str = "gemini-3.5-flash"
+    huggingface_api_key: str | None = None
+    huggingface_image_model: str = "black-forest-labs/FLUX.1-Kontext-dev"
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-sonnet-4-6"
     pinecone_api_key: str | None = None

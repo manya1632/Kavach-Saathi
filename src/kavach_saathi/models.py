@@ -19,7 +19,6 @@ class WorkflowType(StrEnum):
     REVIEW_SUMMARY = "review_summary"
     VOICE = "voice"
     ADDRESS = "address"
-    CONFIRMATION = "confirmation"
     RETURN = "return"
 
 
@@ -177,9 +176,42 @@ class SellerProductCreate(BaseModel):
         return self
 
 
+class SellerProductInitialize(BaseModel):
+    product_image_keys: list[str] = Field(..., min_length=2, max_length=4)
+    catalogue_image_keys: list[str] = Field(..., min_length=1, max_length=2)
+
+
+class SellerProductPublish(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    brand: str | None = None
+    description: str = ""
+    category: str
+    audience: str = "All"
+    occasion: str | None = None
+    material: str | None = None
+    price: float = Field(gt=0)
+    original_price: float = Field(gt=0)
+    seller_specs: dict[str, Any] = Field(default_factory=dict)
+    specifications: list[SellerSpecification] = Field(default_factory=list, max_length=100)
+    size_chart: list[SellerSizeRow] = Field(default_factory=list, max_length=30)
+    stock_qty: int = Field(default=0, ge=0)
+    seller_corrections: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def unique_listing_rows(self) -> SellerProductPublish:
+        spec_keys = [item.key for item in self.specifications]
+        if len(spec_keys) != len(set(spec_keys)):
+            raise ValueError("specification keys must be unique")
+        sizes = [item.size.casefold() for item in self.size_chart]
+        if len(sizes) != len(set(sizes)):
+            raise ValueError("size chart sizes must be unique")
+        return self
+
+
 class SellerProductUpdate(BaseModel):
     price: float | None = Field(default=None, gt=0)
-    status: Literal["draft", "pending_seller_input", "active", "blocked"] | None = None
+    status: Literal["draft", "pending_seller_input", "active", "blocked", "extracting", "inconsistent"] | None = None
+
 
 
 class SellerVariantCreate(BaseModel):
@@ -262,17 +294,21 @@ class VoiceQueryRequest(BaseModel):
 
 class AddressVerifyRequest(BaseModel):
     buyer_id: str
-    raw_address: str
+    raw_address: str | None = None
     postal_pin: str = Field(pattern=r"^\d{6}$")
     coordinates: Coordinates
     idempotency_key: str | None = None
 
-
-class ConfirmationRequest(BaseModel):
-    decision: Literal["confirmed", "reschedule", "cancel", "update_address"]
-    scheduled_date: str | None = None
-    updated_address: AddressVerifyRequest | None = None
-    idempotency_key: str | None = None
+    recipient_name: str | None = None
+    phone: str | None = None
+    address_line1: str | None = None
+    address_line2: str | None = None
+    locality: str | None = None
+    city: str | None = None
+    district: str | None = None
+    state: str | None = None
+    country: str | None = None
+    address_type: str | None = None
 
 
 class ReturnAnalyzeRequest(BaseModel):
@@ -306,7 +342,7 @@ class PaymentVerifyRequest(BaseModel):
 
 class ReviewCreateRequest(BaseModel):
     product_id: str
-    order_id: str | None = None
+    order_id: str
     rating: int = Field(ge=1, le=5)
     text: str = Field(default="", max_length=2000)
     image_key: str | None = None
@@ -315,10 +351,11 @@ class ReviewCreateRequest(BaseModel):
 class ReturnCreateRequest(BaseModel):
     order_id: str
     reason: str = Field(min_length=3, max_length=255)
+    return_type: Literal["refund", "exchange"] = "refund"
 
 
 class PresignRequest(BaseModel):
-    kind: Literal["catalogue", "review", "voice", "return"]
+    kind: Literal["product", "catalogue", "review", "voice", "return"]
     filename: str
     content_type: str
 
@@ -343,3 +380,61 @@ class HealthResponse(BaseModel):
     mode: Literal["demo", "live"]
     agents: int = 8
     checks: dict[str, bool | int | str]
+
+
+class AddressCreateRequest(BaseModel):
+    recipient_name: str
+    phone: str
+    address_line1: str
+    address_line2: str | None = None
+    locality: str | None = None
+    city: str
+    district: str
+    state: str
+    postal_pin: str = Field(pattern=r"^\d{6}$")
+    country: str = "India"
+    latitude: float
+    longitude: float
+    address_type: str = "Home"
+    is_default: bool = False
+    verification_session_id: str
+
+
+class AddressUpdateRequest(BaseModel):
+    recipient_name: str | None = None
+    phone: str | None = None
+    address_line1: str | None = None
+    address_line2: str | None = None
+    locality: str | None = None
+    city: str | None = None
+    district: str | None = None
+    state: str | None = None
+    postal_pin: str | None = Field(default=None, pattern=r"^\d{6}$")
+    country: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    address_type: str | None = None
+    is_default: bool | None = None
+    verification_session_id: str | None = None
+
+
+class AddressGeocodeRequest(BaseModel):
+    address_line1: str
+    address_line2: str | None = None
+    locality: str | None = None
+    city: str
+    district: str
+    state: str
+    postal_pin: str = Field(pattern=r"^\d{6}$")
+    country: str = "India"
+
+
+class OtpSendRequest(BaseModel):
+    phone: str = Field(pattern=r"^\+?[1-9]\d{1,14}$")
+    address_session_id: str = Field(min_length=16, max_length=64)
+
+
+class OtpVerifyRequest(BaseModel):
+    phone: str = Field(pattern=r"^\+?[1-9]\d{1,14}$")
+    otp: str = Field(min_length=6, max_length=6)
+    address_session_id: str = Field(min_length=16, max_length=64)

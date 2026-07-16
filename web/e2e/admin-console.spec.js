@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 
 test("admin can log in and see real platform analytics", async ({ page }) => {
   await page.goto("/admin");
-  await expect(page.getByText("Admin Console")).toBeVisible();
+  await expect(page.getByLabel("Admin email")).toBeVisible();
 
   await page.getByLabel("Admin email").fill("admin@kavachsaathi.test");
   await page.getByLabel("Password").fill("KavachDemo@2026");

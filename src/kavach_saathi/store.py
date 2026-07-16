@@ -8,6 +8,10 @@ from threading import RLock
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import select
+
+from kavach_saathi.db.base import SessionLocal
+from kavach_saathi.db.models import WorkflowRun
 from kavach_saathi.models import RunRecord, RunStatus
 
 
@@ -55,6 +59,53 @@ class MemoryWorkflowStore(WorkflowStore):
         with self._lock:
             run_id = self._idempotency.get(key)
             return deepcopy(self._records[run_id]) if run_id else None
+
+
+class PostgresWorkflowStore(WorkflowStore):
+    """Persists queued, running, completed, and failed agent runs across restarts."""
+
+    @staticmethod
+    def _payload(record: RunRecord) -> dict[str, Any]:
+        return json.loads(record.model_dump_json())
+
+    def create(self, record: RunRecord, idempotency_key: str | None = None) -> RunRecord:
+        if idempotency_key:
+            existing = self.find_idempotent(idempotency_key)
+            if existing:
+                return existing
+        with SessionLocal() as session:
+            session.add(
+                WorkflowRun(
+                    run_id=str(record.run_id),
+                    idempotency_key=idempotency_key,
+                    payload=self._payload(record),
+                )
+            )
+            session.commit()
+        return record
+
+    def get(self, run_id: UUID) -> RunRecord | None:
+        with SessionLocal() as session:
+            row = session.get(WorkflowRun, str(run_id))
+            return RunRecord.model_validate(row.payload) if row else None
+
+    def save(self, record: RunRecord) -> RunRecord:
+        record.updated_at = datetime.now(UTC)
+        with SessionLocal() as session:
+            row = session.get(WorkflowRun, str(record.run_id))
+            if row:
+                row.payload = self._payload(record)
+            else:
+                session.add(WorkflowRun(run_id=str(record.run_id), payload=self._payload(record)))
+            session.commit()
+        return record
+
+    def find_idempotent(self, key: str) -> RunRecord | None:
+        with SessionLocal() as session:
+            row = session.execute(
+                select(WorkflowRun).where(WorkflowRun.idempotency_key == key)
+            ).scalars().first()
+            return RunRecord.model_validate(row.payload) if row else None
 
 
 class DynamoDBWorkflowStore(WorkflowStore):

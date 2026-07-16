@@ -13,7 +13,7 @@ function uniqueEmail(prefix) {
 
 test("seller can sign up and start a real listing (Agent 1 + 2 pipeline)", async ({ page }) => {
   await page.goto("/seller");
-  await expect(page.getByText("Seller Portal")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign up" })).toBeVisible();
 
   // Real signup against POST /v1/auth/signup with role=seller -- creates a real
   // seller_profiles row, not a hardcoded S-001.
@@ -26,15 +26,9 @@ test("seller can sign up and start a real listing (Agent 1 + 2 pipeline)", async
 
   // Real bcrypt hashing + a real DB round trip -- slower than Playwright's 5s default.
   await expect(page.getByRole("button", { name: "Add Product" })).toBeVisible({ timeout: 20_000 });
-  await page.getByRole("button", { name: "Add Product" }).click();
-
-  await page.getByLabel("Product title").fill("E2E Test Kurta");
-  await page.getByLabel("Description").fill("A test listing created by the Playwright E2E suite.");
-  await page.getByLabel("Price (₹)", { exact: true }).fill("499");
-  await page.getByLabel("Original price (₹)").fill("999");
-  await page.locator('input[type="file"]').setInputFiles(SAMPLE_PHOTO);
-
-  await page.getByRole("button", { name: /Create listing/ }).click();
+  await page.getByLabel("Product Images (2 to 4)").setInputFiles([SAMPLE_PHOTO, SAMPLE_PHOTO]);
+  await page.getByLabel("Catalogue/Label/Tag Images (1 to 2)").setInputFiles(SAMPLE_PHOTO);
+  await page.getByRole("button", { name: /Initialize listing/ }).click();
 
   // Agent 1 (SAM2 + Gemini/Stable Diffusion) and Agent 2 (OCR + CLIP/ResNet-50) take
   // real CPU minutes to fully complete -- the UI only shows "Draft product created"
@@ -45,5 +39,5 @@ test("seller can sign up and start a real listing (Agent 1 + 2 pipeline)", async
   // completion is covered by pytest's
   // test_listing_analyze_persists_real_agent_logs_and_product_images and the manual
   // RUNBOOK.md walkthrough.
-  await expect(page.getByText(/Agent 1 .* Agent 2 .* are verifying this listing/)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/Agent pipeline is extracting specs|Initializing listing/)).toBeVisible({ timeout: 30_000 });
 });

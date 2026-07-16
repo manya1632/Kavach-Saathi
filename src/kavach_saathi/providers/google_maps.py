@@ -104,6 +104,38 @@ class GoogleMapsGeocoder:
         return {
             "label": result.get("formatted_address", ""),
             "city": components.get("locality") or components.get("administrative_area_level_2", ""),
+            "district": components.get("administrative_area_level_2", ""),
             "state": components.get("administrative_area_level_1", ""),
             "postal_pin": components.get("postal_code", ""),
+        }
+
+    async def geocode(self, address: str) -> dict[str, Any]:
+        if not self.is_configured:
+            raise GoogleMapsUnavailable("GOOGLE_MAPS_API_KEY is not configured")
+        async with httpx.AsyncClient(timeout=self.settings.provider_timeout_seconds) as client:
+            response = await client.get(
+                _GEOCODE_URL,
+                params={"address": address, "key": self.settings.google_maps_api_key},
+            )
+            response.raise_for_status()
+            payload = response.json()
+
+        if payload.get("status") != "OK" or not payload.get("results"):
+            raise GoogleMapsUnavailable(f"Google Maps returned status={payload.get('status')}")
+
+        result = payload["results"][0]
+        location = result.get("geometry", {}).get("location", {})
+        components = {
+            component_type: component["long_name"]
+            for component in result.get("address_components", [])
+            for component_type in component.get("types", [])
+        }
+        return {
+            "label": result.get("formatted_address", ""),
+            "city": components.get("locality") or components.get("administrative_area_level_2", ""),
+            "district": components.get("administrative_area_level_2", ""),
+            "state": components.get("administrative_area_level_1", ""),
+            "postal_pin": components.get("postal_code", ""),
+            "latitude": location.get("lat", 0.0),
+            "longitude": location.get("lng", 0.0),
         }

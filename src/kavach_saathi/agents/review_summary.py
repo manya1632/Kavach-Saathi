@@ -30,7 +30,10 @@ def _deterministic_summary(total: int, average_rating: float, positive_pct: int,
     if total == 0:
         return "No reviews yet for this product."
     tail = f", while {negative_pct}% report issues with quality, fit, or delivery." if negative_pct else "."
-    return f"Average rating is {average_rating}/5 across {total} reviews. {positive_pct}% rate it 4 stars or higher{tail}"
+    return (
+        f"Average rating is {average_rating}/5 across {total} reviews. "
+        f"{positive_pct}% rate it 4 stars or higher{tail}"
+    )
 
 
 class ReviewSummaryAgent(Agent):

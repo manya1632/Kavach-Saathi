@@ -20,6 +20,7 @@ function AdminAuth({ onAuthenticated }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -45,7 +46,15 @@ function AdminAuth({ onAuthenticated }) {
         <div className="seller-brand"><ShieldAlert size={22} /><div><strong>Kavach Saathi</strong><small>Admin Console</small></div></div>
         <form className="auth-form" onSubmit={handleSubmit}>
           <label>Admin email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
-          <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
+          <label style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            Password
+            <div style={{ position: "relative", width: "100%" }}>
+              <input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} required style={{ width: "100%", paddingRight: "50px" }} />
+              <button type="button" onClick={() => setShowPassword(!showPassword)} style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#64748b", fontSize: "12px" }}>
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </div>
+          </label>
           {error && <p className="auth-error">{error}</p>}
           <button className="primary-cta wide" type="submit" disabled={busy}>{busy ? <LoaderCircle className="spin" size={16} /> : null} Log in</button>
         </form>

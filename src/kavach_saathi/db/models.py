@@ -78,7 +78,23 @@ class Address(Base):
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     verified_bool: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    recipient_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    address_line1: Mapped[str | None] = mapped_column(Text, nullable=True)
+    address_line2: Mapped[str | None] = mapped_column(Text, nullable=True)
+    locality: Mapped[str | None] = mapped_column(Text, nullable=True)
+    district: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(120), nullable=True, default="India")
+    address_type: Mapped[str | None] = mapped_column(String(20), nullable=True, default="Home")
+    phone_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    validation_status: Mapped[str] = mapped_column(String(24), nullable=False, default="needs_correction")
+    validation_explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=utc_now, onupdate=utc_now
+    )
 
 
 class Product(Base):
@@ -113,6 +129,11 @@ class Product(Base):
     size_chart: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     media_primary: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     media_care_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    product_images: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    catalogue_images: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    extraction_results: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    seller_corrections: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    activation_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
@@ -191,6 +212,10 @@ class Order(Base):
     payment_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)  # cod | prepaid
     fit_feedback: Mapped[str | None] = mapped_column(String(24), nullable=True)
     return_outcome: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    address_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    exchange_tag: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    original_order_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("orders.id"), nullable=True)
+    stock_decremented: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
@@ -201,9 +226,7 @@ class OrderItem(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     order_id: Mapped[str] = mapped_column(String(32), ForeignKey("orders.id"), nullable=False)
     product_id: Mapped[str] = mapped_column(String(32), ForeignKey("products.id"), nullable=False)
-    product_variant_id: Mapped[str | None] = mapped_column(
-        String(48), ForeignKey("product_variants.id"), nullable=True
-    )
+    product_variant_id: Mapped[str | None] = mapped_column(String(48), ForeignKey("product_variants.id"), nullable=True)
     seller_id: Mapped[str] = mapped_column(String(32), ForeignKey("seller_profiles.user_id"), nullable=False)
     size: Mapped[str | None] = mapped_column(String(16), nullable=True)
     qty: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
@@ -229,6 +252,24 @@ class Payment(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
     transaction_ref: Mapped[str | None] = mapped_column(String(120), nullable=True)
     amount: Mapped[float] = mapped_column(Float, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR")
+    provider_order_id: Mapped[str | None] = mapped_column(String(120), nullable=True, unique=True)
+    provider_payment_id: Mapped[str | None] = mapped_column(String(120), nullable=True, unique=True)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class RazorpayWebhookEvent(Base):
+    __tablename__ = "razorpay_webhook_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_id: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="received")
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
@@ -238,11 +279,16 @@ class Review(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     product_id: Mapped[str] = mapped_column(String(32), ForeignKey("products.id"), nullable=False)
     buyer_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id"), nullable=False)
+    order_id: Mapped[str] = mapped_column(String(32), ForeignKey("orders.id"), nullable=False)
     rating: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False, default="")
     media: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_hidden_by_agent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     hide_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    media_hidden_by_agent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    awaiting_analysis: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    relevance_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    media_relevance_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
@@ -257,7 +303,26 @@ class ReturnRecord(Base):
     video_url: Mapped[str | None] = mapped_column("video", String(255), nullable=True)
     confidence_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     decision: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    return_type: Mapped[str] = mapped_column(String(16), nullable=False, default="refund")
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="pending_evidence")
+    evidence_images: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    evidence_checks: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    pickup_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    pickup_status: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    refund_status: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    refund_masked_details: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    replacement_order_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("orders.id"), nullable=True)
+    status_timeline: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class SupportInteraction(Base):
+    __tablename__ = "support_interactions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id"), nullable=False)
+    channel: Mapped[str] = mapped_column(String(16), nullable=False)  # call | email
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
@@ -277,6 +342,18 @@ class AgentLog(Base):
     provider: Mapped[str | None] = mapped_column(String(60), nullable=True)
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class WorkflowRun(Base):
+    """Durable orchestration state used by every agent workflow."""
+
+    __tablename__ = "workflow_runs"
+
+    run_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
 
 class BuyerTrustSignal(Base):
@@ -310,4 +387,20 @@ class EvalFixture(Base):
     entity_type: Mapped[str] = mapped_column(String(40), nullable=False)
     entity_id: Mapped[str] = mapped_column(String(64), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class OtpSession(Base):
+    __tablename__ = "otp_sessions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id"), nullable=False)
+    phone: Mapped[str] = mapped_column(String(20), nullable=False)
+    address_session_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    otp_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

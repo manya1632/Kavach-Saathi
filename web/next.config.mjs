@@ -14,7 +14,6 @@ const nextConfig = {
   turbopack: { root: import.meta.dirname },
   async rewrites() {
     return [
-      { source: "/agent-api/:path*", destination: `${agentOrigin}/:path*` },
       { source: "/mock-assets/:path*", destination: `${agentOrigin}/mock-assets/:path*` },
     ];
   },

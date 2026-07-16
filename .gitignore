@@ -18,4 +18,5 @@ web/node_modules/
 web/.next/
 assets/scraped_products/
 assets/mock/generated/
+assets/mock/uploads/
 .claude/

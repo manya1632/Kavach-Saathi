@@ -13,7 +13,7 @@ from kavach_saathi.agents.base import Agent
 from kavach_saathi.config import get_settings
 from kavach_saathi.db.base import SessionLocal
 from kavach_saathi.media_storage import write_generated_image
-from kavach_saathi.models import AgentAction, AgentName, AgentResult, ConfirmationRequest, Evidence
+from kavach_saathi.models import AgentAction, AgentName, AgentResult, Evidence
 from kavach_saathi.providers.reasoning import ReasoningUnavailable
 from kavach_saathi.providers.sarvam import SarvamClient, SarvamUnavailable
 from kavach_saathi.providers.twilio_voice import TwilioUnavailable, TwilioVoiceClient
@@ -243,8 +243,13 @@ class DeliveryConfirmationAgent(Agent):
             error = str(exc)[:500]
 
         if intent and intent.decision != "unclear" and intent.confidence >= 60:
-            new_status = {"confirmed": "CONFIRMED", "reschedule": "PLACED", "cancel": "CANCELLED"}[intent.decision]
-            self.context.repository.update_order_status(order_id, new_status, actor="agent")
+            if intent.decision == "confirmed":
+                with SessionLocal() as session:
+                    self.execute_delivery_transition(session, order_id, actor="agent")
+                    session.commit()
+            else:
+                new_status = {"reschedule": "PLACED", "cancel": "CANCELLED"}[intent.decision]
+                self.context.repository.update_order_status(order_id, new_status, actor="agent")
             summary = f"Buyer said: {intent.decision}" + (
                 f" (reschedule to {intent.scheduled_date})" if intent.scheduled_date else ""
             )
@@ -337,37 +342,68 @@ class DeliveryConfirmationAgent(Agent):
             )
             session.commit()
 
-    async def run(self, order_id: str, request: ConfirmationRequest) -> AgentResult:
-        """Manual/simulated path -- kept as a checkout-flow convenience (same pattern as
-        Agent 4's manual "Check review truth" button) so the demo doesn't require a real
-        phone call just to progress an order through the UI."""
-        order = self.context.repository.get("orders", order_id)
-        decision = request.decision
-        messages = {
-            "confirmed": "Buyer availability confirmed; order can proceed to dispatch.",
-            "reschedule": "Buyer requested a different delivery date before dispatch.",
-            "cancel": "Buyer cancelled before dispatch, preventing an avoidable RTO.",
-            "update_address": "Buyer requested an address update; address verification must run again.",
-        }
-        actions = {
-            "confirmed": AgentAction(type="release_dispatch", label="Release for dispatch"),
-            "reschedule": AgentAction(
-                type="reschedule",
-                label="Reschedule delivery",
-                payload={"date": request.scheduled_date},
-            ),
-            "cancel": AgentAction(type="cancel_before_dispatch", label="Cancel order"),
-            "update_address": AgentAction(type="verify_updated_address", label="Verify updated address"),
-        }
-        return AgentResult(
-            agent=AgentName.DELIVERY_CONFIRMATION,
-            confidence=100,
-            summary=messages[decision],
-            evidence=[
-                Evidence(key="channel", value="simulated", source="demo_interaction"),
-                Evidence(key="order_status", value=order["status"], source="order_record"),
-            ],
-            actions=[actions[decision]],
-            data={"decision": decision, "scheduled_date": request.scheduled_date},
-            user_message={"en": messages[decision], "hi": "Delivery preference record ho gayi."},
-        )
+    def execute_delivery_transition(self, session: SessionLocal, order_id: str, actor: str = "agent") -> None:
+        from datetime import UTC, datetime
+
+        from kavach_saathi.db.models import Order, OrderItem, OrderStatusHistory, Product, ProductVariant
+        from kavach_saathi.order_status import OrderStatus
+
+        order = session.query(Order).filter(Order.id == order_id).with_for_update().first()
+        if not order:
+            return
+
+        statuses = [
+            OrderStatus.CONFIRMED,
+            OrderStatus.PACKED,
+            OrderStatus.SHIPPED,
+            OrderStatus.OUT_FOR_DELIVERY,
+            OrderStatus.DELIVERED,
+        ]
+
+        for status in statuses:
+            already_done = session.query(OrderStatusHistory).filter(
+                OrderStatusHistory.order_id == order_id,
+                OrderStatusHistory.status == status
+            ).first()
+            if not already_done:
+                order.status = status
+                order.updated_at = datetime.now(UTC)
+                session.add(OrderStatusHistory(order_id=order_id, status=status, actor=actor))
+                session.flush()
+
+                if status == OrderStatus.DELIVERED:
+                    if not order.stock_decremented:
+                        items = session.query(OrderItem).filter(OrderItem.order_id == order_id).all()
+                        variant_ids = [item.product_variant_id for item in items if item.product_variant_id]
+                        locked_variants = {}
+                        if variant_ids:
+                            locked_variants = {
+                                v.id: v for v in session.query(ProductVariant)
+                                .filter(ProductVariant.id.in_(variant_ids))
+                                .with_for_update()
+                                .all()
+                            }
+                        for item in items:
+                            if item.product_variant_id:
+                                variant = locked_variants.get(item.product_variant_id)
+                                if variant:
+                                    variant.stock_qty = max(0, variant.stock_qty - item.qty)
+                                    product = (
+                                        session.query(Product)
+                                        .filter(Product.id == item.product_id)
+                                        .with_for_update()
+                                        .first()
+                                    )
+                                    if product:
+                                        product.stock = max(0, product.stock - item.qty)
+                            else:
+                                product = (
+                                    session.query(Product)
+                                    .filter(Product.id == item.product_id)
+                                    .with_for_update()
+                                    .first()
+                                )
+                                if product:
+                                    product.stock = max(0, product.stock - item.qty)
+                        order.stock_decremented = True
+                        session.flush()

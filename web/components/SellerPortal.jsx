@@ -53,6 +53,7 @@ function SellerAuth({ onAuthenticated }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -90,7 +91,15 @@ function SellerAuth({ onAuthenticated }) {
             </>
           )}
           <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
-          <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={mode === "signup" ? 8 : 1} /></label>
+          <label style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            Password
+            <div style={{ position: "relative", width: "100%" }}>
+              <input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} required minLength={mode === "signup" ? 8 : 1} style={{ width: "100%", paddingRight: "50px" }} />
+              <button type="button" onClick={() => setShowPassword(!showPassword)} style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#64748b", fontSize: "12px" }}>
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </div>
+          </label>
           {error && <p className="auth-error">{error}</p>}
           <button className="primary-cta wide" type="submit" disabled={busy}>{busy ? <LoaderCircle className="spin" size={16} /> : null} {mode === "login" ? "Log in" : "Create seller account"}</button>
         </form>
@@ -120,7 +129,15 @@ function AddProductTab({ onCreated }) {
   const [form, setForm] = useState({ title: "", brand: "", category: CATEGORIES[0], price: "", original_price: "", description: "", stock_qty: "" });
   const [specifications, setSpecifications] = useState(() => specificationTemplate(CATEGORIES[0]));
   const [sizes, setSizes] = useState([]);
-  const [file, setFile] = useState(null);
+  
+  const [productImages, setProductImages] = useState([]);
+  const [catalogueImages, setCatalogueImages] = useState([]);
+  const [initialized, setInitialized] = useState(false);
+  const [productId, setProductId] = useState(null);
+  const [conflicts, setConflicts] = useState([]);
+  const [sellerCorrections, setSellerCorrections] = useState({});
+  const [validationErrors, setValidationErrors] = useState({ products: "", catalogues: "" });
+
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
   const [result, setResult] = useState(null);
@@ -138,17 +155,100 @@ function AddProductTab({ onCreated }) {
     return Object.fromEntries(value.split(",").map((part) => part.split(":").map((item) => item.trim())).filter((pair) => pair.length === 2 && pair[0] && !Number.isNaN(Number(pair[1]))).map(([key, amount]) => [key.toLowerCase().replace(/\s+/g, "_"), Number(amount)]));
   }
 
-  async function handleSubmit(event) {
+  function handleProductImageChange(e) {
+    const files = Array.from(e.target.files || []);
+    setProductImages(files);
+    if (files.length < 2 || files.length > 4) {
+      setValidationErrors(prev => ({ ...prev, products: "You must upload between 2 and 4 product images." }));
+    } else {
+      setValidationErrors(prev => ({ ...prev, products: "" }));
+    }
+  }
+
+  function handleCatalogueImageChange(e) {
+    const files = Array.from(e.target.files || []);
+    setCatalogueImages(files);
+    if (files.length < 1 || files.length > 2) {
+      setValidationErrors(prev => ({ ...prev, catalogues: "You must upload 1 or 2 catalogue/label/tag images." }));
+    } else {
+      setValidationErrors(prev => ({ ...prev, catalogues: "" }));
+    }
+  }
+
+  async function handleInitializeAndExtract(event) {
     event.preventDefault();
-    if (!file) { setError("Upload a catalogue photo first"); return; }
+    if (productImages.length < 2 || productImages.length > 4 || catalogueImages.length < 1 || catalogueImages.length > 2) {
+      setError("Please fix image count requirements before proceeding.");
+      return;
+    }
     setBusy(true);
     setError("");
     setResult(null);
-    setProgress("");
+    setProgress("Uploading product images...");
     try {
-      const presign = await post("/uploads/presign", { kind: "catalogue", filename: file.name, content_type: file.type || "image/png" });
-      await fetch(presign.upload_url, { method: "PUT", body: file, headers: { "Content-Type": file.type || "image/png" } });
+      const prodKeys = [];
+      for (const file of productImages) {
+        const presign = await post("/uploads/presign", { kind: "product", filename: file.name, content_type: file.type || "image/png" });
+        await fetch(presign.upload_url, { method: "PUT", body: file, headers: { "Content-Type": file.type || "image/png" } });
+        prodKeys.push(presign.object_key);
+      }
 
+      setProgress("Uploading catalogue images...");
+      const catKeys = [];
+      for (const file of catalogueImages) {
+        const presign = await post("/uploads/presign", { kind: "catalogue", filename: file.name, content_type: file.type || "image/png" });
+        await fetch(presign.upload_url, { method: "PUT", body: file, headers: { "Content-Type": file.type || "image/png" } });
+        catKeys.push(presign.object_key);
+      }
+
+      setProgress("Initializing listing on the server...");
+      const res = await post("/seller/products/initialize", { product_image_keys: prodKeys, catalogue_image_keys: catKeys });
+      setProductId(res.product_id);
+
+      setProgress("Agent pipeline is extracting specs from catalogue images...");
+      let run = { status: "queued" };
+      while (run.status === "queued" || run.status === "running") {
+        await new Promise(r => setTimeout(r, 2000));
+        run = await request(`/runs/${res.run_id}`);
+      }
+
+      if (run.status === "failed") {
+        throw new Error(run.error || "Image extraction failed");
+      }
+
+      const detail = await request(`/storefront/products/${res.product_id}`);
+      const extracted = detail.extraction_results?.extracted_specs || {};
+
+      const defaultTemplate = specificationTemplate(form.category);
+      const updatedSpecs = defaultTemplate.map(item => {
+        if (extracted[item.key]) {
+          return { ...item, value: String(extracted[item.key]) };
+        }
+        return item;
+      });
+      setSpecifications(updatedSpecs);
+
+      const conflictsList = detail.extraction_results?.evidence?.conflicts || [];
+      setConflicts(conflictsList);
+      setInitialized(true);
+      setResult({ product: detail, analysis: run });
+    } catch (err) {
+      setError(err.message || "Could not initialize extraction");
+    } finally {
+      setBusy(false);
+      setProgress("");
+    }
+  }
+
+  async function handlePublish(event) {
+    event.preventDefault();
+    if (conflicts.length > 0) {
+      setError("Please resolve conflicts first by correcting values to match CV or accepting CV values.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
       const submittedSpecs = specifications.filter((item) => item.key && item.label && item.value !== "").map((item) => ({
         ...item,
         value: ["number", "percentage", "measurement"].includes(item.value_type) ? Number(item.value) : item.value,
@@ -156,87 +256,121 @@ function AddProductTab({ onCreated }) {
         comparison_group: item.comparison_group || "general",
         comparable: true,
       }));
-      if (!submittedSpecs.length) throw new Error("Add at least one product-specific specification");
       const submittedSizes = sizes.filter((row) => row.size).map((row) => ({
         size: row.size, dimensions_cm: parseDimensions(row.dimensions), stock_qty: Number(row.stock_qty || 0),
       }));
-      const sellerSpecs = Object.fromEntries(submittedSpecs.map((item) => [item.key, item.value]));
-      const product = await post("/seller/products", {
+
+      await post(`/seller/products/${productId}/publish`, {
         title: form.title,
         brand: form.brand || null,
         category: form.category,
         description: form.description,
         price: Number(form.price),
         original_price: Number(form.original_price),
-        image_keys: [presign.object_key],
-        stock_qty: Number(form.stock_qty || 0),
+        seller_specs: {},
         specifications: submittedSpecs,
         size_chart: submittedSizes,
+        stock_qty: Number(form.stock_qty || 0),
+        seller_corrections: sellerCorrections
       });
 
-      setProgress("Agent 1 (SAM 2.0 + Nano Banana 2 / Stable Diffusion) and Agent 2 (Claude OCR + CLIP/ResNet-50) are verifying this listing — image generation can take several minutes on CPU.");
-      const analysis = await postAndPoll(
-        "/listings/analyze",
-        { seller_id: product.seller_id, product_id: product.id, image_keys: [presign.object_key], seller_specs: sellerSpecs },
-        { onTick: () => setProgress((current) => current + ".") },
-      ).catch((reason) => ({ status: "failed", error: reason.message }));
-
-      setResult({ product, analysis });
       onCreated();
-    } catch (reason) {
-      setError(reason.message || "Could not create the listing");
+      setInitialized(false);
+      setProductId(null);
+      setProductImages([]);
+      setCatalogueImages([]);
+      setForm({ title: "", brand: "", category: CATEGORIES[0], price: "", original_price: "", description: "", stock_qty: "" });
+      setSpecifications(specificationTemplate(CATEGORIES[0]));
+      setSizes([]);
+    } catch (err) {
+      setError(err.message || "Failed to publish listing.");
     } finally {
       setBusy(false);
-      setProgress("");
     }
   }
 
   return (
     <div className="seller-panel">
-      <form className="auth-form" onSubmit={handleSubmit}>
-        <label>Product title<input value={form.title} onChange={(event) => update("title", event.target.value)} required /></label>
-        <label>Brand<input value={form.brand} onChange={(event) => update("brand", event.target.value)} /></label>
-        <label>Category
-          <select value={form.category} onChange={(event) => { update("category", event.target.value); setSpecifications(specificationTemplate(event.target.value)); }}>
-            {CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
-          </select>
-        </label>
-        <label>Description<input value={form.description} onChange={(event) => update("description", event.target.value)} /></label>
-        <label>Price (₹)<input type="number" min="1" value={form.price} onChange={(event) => update("price", event.target.value)} required /></label>
-        <label>Original price (₹)<input type="number" min="1" value={form.original_price} onChange={(event) => update("original_price", event.target.value)} required /></label>
-        <label>Standard stock (used when there is no size chart)<input type="number" min="0" value={form.stock_qty} onChange={(event) => update("stock_qty", event.target.value)} /></label>
-        <fieldset className="dynamic-specs"><legend>Product-specific specifications</legend><small>Add only fields that apply to this product. They are stored for grounded comparisons.</small>
-          {specifications.map((item, index) => <div className="dynamic-spec-row" key={`${item.key}-${index}`}>
-            <input placeholder="Key" value={item.key} onChange={(event) => updateSpec(index, "key", event.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_"))} required />
-            <input placeholder="Display label" value={item.label} onChange={(event) => updateSpec(index, "label", event.target.value)} required />
-            <input placeholder="Value" value={item.value} onChange={(event) => updateSpec(index, "value", event.target.value)} required />
-            <select value={item.value_type} onChange={(event) => updateSpec(index, "value_type", event.target.value)}><option value="text">Text</option><option value="number">Number</option><option value="percentage">Percentage</option><option value="measurement">Measurement</option></select>
-            <input placeholder="Unit" value={item.unit} onChange={(event) => updateSpec(index, "unit", event.target.value)} />
-            <button type="button" onClick={() => setSpecifications((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</button>
-          </div>)}
-          <button className="secondary-cta" type="button" onClick={() => setSpecifications((current) => [...current, { key: "", label: "", value: "", value_type: "text", unit: "", comparison_group: "general" }])}>Add specification</button>
-        </fieldset>
-        <fieldset className="dynamic-specs"><legend>Size chart (optional)</legend><small>Measurements are in cm. Use any applicable key:value dimensions.</small>
-          {sizes.map((row, index) => <div className="dynamic-size-row" key={index}>
-            <input placeholder="Size (e.g. M)" value={row.size} onChange={(event) => setSizes((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, size: event.target.value } : item))} />
-            <input placeholder="chest:91, waist:85, length:112" value={row.dimensions} onChange={(event) => setSizes((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, dimensions: event.target.value } : item))} />
-            <input type="number" min="0" placeholder="Stock" value={row.stock_qty} onChange={(event) => setSizes((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, stock_qty: event.target.value } : item))} />
-            <button type="button" onClick={() => setSizes((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</button>
-          </div>)}
-          <button className="secondary-cta" type="button" onClick={() => setSizes((current) => [...current, { size: "", dimensions: "", stock_qty: "" }])}>Add size</button>
-        </fieldset>
-        <label>Catalogue photo (1–2 images per the plan; upload one to start)<input type="file" accept="image/*" onChange={(event) => setFile(event.target.files?.[0] || null)} required /></label>
-        {error && <p className="auth-error">{error}</p>}
-        <button className="primary-cta wide" type="submit" disabled={busy}>{busy ? <LoaderCircle className="spin" size={16} /> : <Upload size={16} />} Create listing &amp; run Agent 1 + 2</button>
-        {busy && progress && <p className="listing-progress">{progress}</p>}
-      </form>
-      {result && (
-        <div className="listing-result">
-          <p><Check size={14} /> Draft product <strong>{result.product.id}</strong> created.</p>
-          <p>Agent pipeline status: <strong>{result.analysis.status}</strong>
-            {result.analysis.error ? ` — ${result.analysis.error}` : " — see the Inventory tab once specs are verified."}
-          </p>
-        </div>
+      {!initialized ? (
+        <form className="auth-form" onSubmit={handleInitializeAndExtract}>
+          <h3>Image-First Product Creation</h3>
+          <p style={{ fontSize: "14px", color: "#64748b" }}>To list a product, please upload product images and catalogue images containing the garment label/tags first. Our agent enforcer will extract specifications before you fill the form.</p>
+          
+          <label>Product Images (2 to 4)<input type="file" accept="image/*" multiple onChange={handleProductImageChange} required /></label>
+          {validationErrors.products && <p className="auth-error" style={{ marginTop: "-8px" }}>{validationErrors.products}</p>}
+          
+          <label>Catalogue/Label/Tag Images (1 to 2)<input type="file" accept="image/*" multiple onChange={handleCatalogueImageChange} required /></label>
+          {validationErrors.catalogues && <p className="auth-error" style={{ marginTop: "-8px" }}>{validationErrors.catalogues}</p>}
+          
+          {error && <p className="auth-error">{error}</p>}
+          
+          <button className="primary-cta wide" type="submit" disabled={busy || !!validationErrors.products || !!validationErrors.catalogues}>
+            {busy ? <LoaderCircle className="spin" size={16} /> : <Upload size={16} />} Initialize listing &amp; extract specs
+          </button>
+          
+          {busy && progress && <p className="listing-progress">{progress}</p>}
+        </form>
+      ) : (
+        <form className="auth-form" onSubmit={handlePublish}>
+          <h3>Finalize Product Details</h3>
+          
+          {conflicts.length > 0 && (
+            <div className="warn-note" style={{ padding: "12px", border: "1px solid #fecaca", backgroundColor: "#fef2f2", borderRadius: "6px", marginBottom: "16px" }}>
+              <strong style={{ color: "#b91c1c", display: "block", marginBottom: "6px" }}>Spec Conflicts Detected by AI:</strong>
+              <ul style={{ margin: "0", paddingLeft: "20px", color: "#7f1d1d", fontSize: "14px" }}>
+                {conflicts.map((c, i) => (
+                  <li key={i} style={{ marginBottom: "8px" }}>
+                    Field <strong>{c.field}</strong>: claimed <em>&quot;{c.claimed}&quot;</em> vs. CV detected <em>&quot;{c.cv_detected}&quot;</em>.
+                    <button type="button" className="secondary-cta" style={{ marginLeft: "12px", padding: "4px 8px", fontSize: "12px" }} onClick={() => {
+                      setSpecifications(prev => prev.map(item => item.key === c.field ? { ...item, value: c.cv_detected } : item));
+                      setSellerCorrections(prev => ({ ...prev, [c.field]: c.cv_detected }));
+                      setConflicts(prev => prev.filter((_, idx) => idx !== i));
+                    }}>Accept CV Value ({c.cv_detected})</button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <label>Product title<input value={form.title} onChange={(event) => update("title", event.target.value)} required /></label>
+          <label>Brand<input value={form.brand} onChange={(event) => update("brand", event.target.value)} /></label>
+          <label>Category
+            <select value={form.category} onChange={(event) => { update("category", event.target.value); setSpecifications(specificationTemplate(event.target.value)); }}>
+              {CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
+            </select>
+          </label>
+          <label>Description<input value={form.description} onChange={(event) => update("description", event.target.value)} /></label>
+          <label>Price (₹)<input type="number" min="1" value={form.price} onChange={(event) => update("price", event.target.value)} required /></label>
+          <label>Original price (₹)<input type="number" min="1" value={form.original_price} onChange={(event) => update("original_price", event.target.value)} required /></label>
+          <label>Standard stock (used when there is no size chart)<input type="number" min="0" value={form.stock_qty} onChange={(event) => update("stock_qty", event.target.value)} /></label>
+          
+          <fieldset className="dynamic-specs"><legend>Product-specific specifications</legend><small>These specifications were extracted from the images. Correct them if necessary.</small>
+            {specifications.map((item, index) => <div className="dynamic-spec-row" key={`${item.key}-${index}`}>
+              <input placeholder="Key" value={item.key} onChange={(event) => updateSpec(index, "key", event.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_"))} required />
+              <input placeholder="Display label" value={item.label} onChange={(event) => updateSpec(index, "label", event.target.value)} required />
+              <input placeholder="Value" value={item.value} onChange={(event) => updateSpec(index, "value", event.target.value)} required />
+              <select value={item.value_type} onChange={(event) => updateSpec(index, "value_type", event.target.value)}><option value="text">Text</option><option value="number">Number</option><option value="percentage">Percentage</option><option value="measurement">Measurement</option></select>
+              <input placeholder="Unit" value={item.unit} onChange={(event) => updateSpec(index, "unit", event.target.value)} />
+              <button type="button" onClick={() => setSpecifications((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</button>
+            </div>)}
+            <button className="secondary-cta" type="button" onClick={() => setSpecifications((current) => [...current, { key: "", label: "", value: "", value_type: "text", unit: "", comparison_group: "general" }])}>Add specification</button>
+          </fieldset>
+          
+          <fieldset className="dynamic-specs"><legend>Size chart (optional)</legend><small>Measurements are in cm. Use any applicable key:value dimensions.</small>
+            {sizes.map((row, index) => <div className="dynamic-size-row" key={index}>
+              <input placeholder="Size (e.g. M)" value={row.size} onChange={(event) => setSizes((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, size: event.target.value } : item))} />
+              <input placeholder="chest:91, waist:85, length:112" value={row.dimensions} onChange={(event) => setSizes((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, dimensions: event.target.value } : item))} />
+              <input type="number" min="0" placeholder="Stock" value={row.stock_qty} onChange={(event) => setSizes((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, stock_qty: event.target.value } : item))} />
+              <button type="button" onClick={() => setSizes((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</button>
+            </div>)}
+            <button className="secondary-cta" type="button" onClick={() => setSizes((current) => [...current, { size: "", dimensions: "", stock_qty: "" }])}>Add size</button>
+          </fieldset>
+          
+          {error && <p className="auth-error">{error}</p>}
+          <button className="primary-cta wide" type="submit" disabled={busy || conflicts.length > 0}>
+            {busy ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />} Publish Listing
+          </button>
+        </form>
       )}
     </div>
   );
@@ -337,7 +471,7 @@ function KycTab({ profile, onRefresh }) {
 export default function SellerPortal() {
   const [auth, setAuth] = useState(null);
   const [ready, setReady] = useState(false);
-  const [tab, setTab] = useState("dashboard");
+  const [tab, setTab] = useState("add");
   const [profile, setProfile] = useState(null);
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
@@ -405,11 +539,9 @@ export default function SellerPortal() {
   }
 
   const tabs = [
-    { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { key: "add", label: "Add Product", icon: Upload },
     { key: "inventory", label: "Inventory", icon: Boxes },
     { key: "orders", label: "Orders", icon: ClipboardList },
-    { key: "kyc", label: "KYC", icon: ShieldCheck },
   ];
 
   return (
@@ -424,11 +556,9 @@ export default function SellerPortal() {
         ))}
       </nav>
       <main className="seller-main">
-        {tab === "dashboard" && <DashboardTab profile={profile} />}
         {tab === "add" && <AddProductTab onCreated={refreshAll} />}
         {tab === "inventory" && <InventoryTab products={products} onAddVariant={addVariant} busyAction={actionBusy} />}
         {tab === "orders" && <OrdersTab orders={orders} onMark={markOrder} busyAction={actionBusy} />}
-        {tab === "kyc" && <KycTab profile={profile} onRefresh={refreshAll} />}
       </main>
       {toast && <div className="toast" role="status" aria-live="polite"><Check size={16} /> {toast}</div>}
     </div>

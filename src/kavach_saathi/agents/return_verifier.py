@@ -92,7 +92,11 @@ class ReturnVerifierAgent(Agent):
         score += min(10, clean_history * 2)
         score = min(100, max(0, score))
 
-        if score >= 90:
+        # Non-overlapping confidence policy (plan.md Task 9):
+        # 75-100: Approved + schedule pickup
+        # 40-74:  More evidence required before deciding
+        # 0-39:   Manual hub inspection (never auto-reject the buyer)
+        if score >= 75:
             status = RunStatus.COMPLETED
             decision = "approve"
             summary = "Return evidence is consistent; approve and schedule pickup."
@@ -100,12 +104,12 @@ class ReturnVerifierAgent(Agent):
         elif score >= 40:
             status = RunStatus.NEEDS_EVIDENCE
             decision = "request_more_evidence"
-            summary = "Evidence is incomplete; request one more clear angle before deciding."
+            summary = "Evidence is incomplete; please upload one more clear angle before we can decide."
             actions = [AgentAction(type="upload_more_evidence", label="Upload another angle")]
         else:
             status = RunStatus.MANUAL_REVIEW
             decision = "manual_inspection"
-            summary = "Confidence is low; send to human inspection without auto-rejecting the buyer."
+            summary = "Confidence is low; sending to hub inspection — we will not auto-reject your return."
             actions = [AgentAction(type="manual_inspection", label="Send to hub inspection")]
 
         checks = {

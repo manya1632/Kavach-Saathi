@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import io
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from PIL import Image
 
 _CLIP_CHECKPOINT = "openai/clip-vit-base-patch32"
 _BERT_CHECKPOINT = "bert-base-multilingual-cased"

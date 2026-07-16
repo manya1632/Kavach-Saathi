@@ -1,14 +1,22 @@
 from __future__ import annotations
 
-from typing import Annotated
+import hashlib
+import hmac
+import json
+import logging
+import secrets
+from datetime import UTC, datetime, timedelta
+from typing import Annotated, Literal
+from pydantic import BaseModel
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from kavach_saathi.auth import require_role
 from kavach_saathi.config import Settings, get_settings
+from kavach_saathi.container import get_container
 from kavach_saathi.db.base import get_session
 from kavach_saathi.db.models import (
     Address,
@@ -19,25 +27,81 @@ from kavach_saathi.db.models import (
     Payment,
     Product,
     ProductVariant,
+    RazorpayWebhookEvent,
     ReturnRecord,
     Review,
+    SupportInteraction,
     User,
     WishlistItem,
 )
 from kavach_saathi.events import ORDER_PLACED_STREAM, REVIEW_SUBMITTED_STREAM, publish_event
 from kavach_saathi.models import (
+    AddressCreateRequest,
+    AddressGeocodeRequest,
+    AddressUpdateRequest,
+    AddressVerifyRequest,
     CartItemAdd,
     CartItemUpdate,
+    Coordinates,
     OrderCreateRequest,
+    OtpSendRequest,
+    OtpVerifyRequest,
     PaymentVerifyRequest,
     ReturnCreateRequest,
     ReviewCreateRequest,
+    WorkflowType,
 )
 from kavach_saathi.order_status import OrderStatus
+from kavach_saathi.providers.google_maps import GoogleMapsUnavailable
 from kavach_saathi.providers.razorpay_provider import RazorpayClient, RazorpayUnavailable
 
 router = APIRouter()
 _require_buyer = require_role("buyer")
+
+
+def _address_out(address: Address) -> dict:
+    return {
+        "id": address.id,
+        "recipient_name": address.recipient_name,
+        "phone": address.phone,
+        "address_line1": address.address_line1,
+        "address_line2": address.address_line2,
+        "locality": address.locality,
+        "city": address.city,
+        "district": address.district,
+        "state": address.state,
+        "postal_pin": address.postal_pin,
+        "country": address.country,
+        "latitude": address.latitude,
+        "longitude": address.longitude,
+        "digipin": address.digipin,
+        "address_type": address.address_type,
+        "phone_verified": address.phone_verified,
+        "validation_status": address.validation_status,
+        "validation_explanation": address.validation_explanation,
+        "is_default": address.is_default,
+        "created_at": address.created_at,
+        "updated_at": address.updated_at,
+    }
+
+
+def _address_snapshot(address: Address, recipient_fallback: str) -> dict:
+    return {
+        "recipient_name": address.recipient_name or recipient_fallback,
+        "phone": address.phone,
+        "address_line1": address.address_line1 or address.raw_text,
+        "address_line2": address.address_line2,
+        "locality": address.locality,
+        "city": address.city,
+        "district": address.district or address.city,
+        "state": address.state,
+        "postal_pin": address.postal_pin,
+        "country": address.country or "India",
+        "digipin": address.digipin,
+        "latitude": address.latitude,
+        "longitude": address.longitude,
+        "address_type": address.address_type or "Home",
+    }
 
 
 def _product_summary(product: Product) -> dict:
@@ -97,11 +161,15 @@ async def add_to_cart(
     variant = session.get(ProductVariant, payload.product_variant_id)
     if not variant:
         raise HTTPException(status_code=404, detail="Product variant not found")
-    existing = session.execute(
-        select(CartItem).where(
-            CartItem.user_id == user.id, CartItem.product_variant_id == payload.product_variant_id
+    existing = (
+        session.execute(
+            select(CartItem).where(
+                CartItem.user_id == user.id, CartItem.product_variant_id == payload.product_variant_id
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     requested_qty = payload.qty + (existing.qty if existing else 0)
     if requested_qty > 10:
         raise HTTPException(status_code=409, detail="A maximum of 10 units is allowed per cart item")
@@ -155,9 +223,13 @@ async def remove_cart_item(
 
 @router.get("/wishlist")
 async def list_wishlist(user: Annotated[User, Depends(_require_buyer)], session: Session = Depends(get_session)):
-    rows = session.execute(
-        select(WishlistItem).where(WishlistItem.user_id == user.id).order_by(WishlistItem.created_at.desc())
-    ).scalars().all()
+    rows = (
+        session.execute(
+            select(WishlistItem).where(WishlistItem.user_id == user.id).order_by(WishlistItem.created_at.desc())
+        )
+        .scalars()
+        .all()
+    )
     items = []
     for row in rows:
         product = session.get(Product, row.product_id)
@@ -167,13 +239,21 @@ async def list_wishlist(user: Annotated[User, Depends(_require_buyer)], session:
 
 
 @router.post("/wishlist/{product_id}", status_code=201)
-async def add_wishlist(product_id: str, user: Annotated[User, Depends(_require_buyer)], session: Session = Depends(get_session)):
+async def add_wishlist(
+    product_id: str,
+    user: Annotated[User, Depends(_require_buyer)],
+    session: Session = Depends(get_session),
+):
     product = session.get(Product, product_id)
     if not product or product.status != "active":
         raise HTTPException(status_code=404, detail="Product not found")
-    item = session.execute(select(WishlistItem).where(
-        WishlistItem.user_id == user.id, WishlistItem.product_id == product_id
-    )).scalars().first()
+    item = (
+        session.execute(
+            select(WishlistItem).where(WishlistItem.user_id == user.id, WishlistItem.product_id == product_id)
+        )
+        .scalars()
+        .first()
+    )
     if item is None:
         item = WishlistItem(user_id=user.id, product_id=product_id)
         session.add(item)
@@ -182,14 +262,63 @@ async def add_wishlist(product_id: str, user: Annotated[User, Depends(_require_b
 
 
 @router.delete("/wishlist/{product_id}")
-async def remove_wishlist(product_id: str, user: Annotated[User, Depends(_require_buyer)], session: Session = Depends(get_session)):
-    item = session.execute(select(WishlistItem).where(
-        WishlistItem.user_id == user.id, WishlistItem.product_id == product_id
-    )).scalars().first()
+async def remove_wishlist(
+    product_id: str,
+    user: Annotated[User, Depends(_require_buyer)],
+    session: Session = Depends(get_session),
+):
+    item = (
+        session.execute(
+            select(WishlistItem).where(WishlistItem.user_id == user.id, WishlistItem.product_id == product_id)
+        )
+        .scalars()
+        .first()
+    )
     if item:
         session.delete(item)
         session.flush()
     return {"removed": bool(item), "product_id": product_id}
+
+
+def _finalize_prepaid_order(session: Session, order: Order, payment: Payment, payment_id: str) -> bool:
+    if order.status != OrderStatus.CART:
+        return False
+
+    order_items = session.execute(select(OrderItem).where(OrderItem.order_id == order.id)).scalars().all()
+
+    variant_ids = [item.product_variant_id for item in order_items]
+    locked_variants = {
+        variant.id: variant
+        for variant in session.execute(
+            select(ProductVariant).where(ProductVariant.id.in_(variant_ids)).with_for_update()
+        ).scalars()
+    }
+    for item in order_items:
+        variant = locked_variants.get(item.product_variant_id)
+        if not variant or variant.stock_qty < item.qty:
+            raise HTTPException(status_code=409, detail=f"Insufficient stock for variant {item.product_variant_id}")
+
+    for item in order_items:
+        # Delete from cart
+        cart_item = (
+            session.execute(
+                select(CartItem).where(
+                    CartItem.user_id == order.buyer_id, CartItem.product_variant_id == item.product_variant_id
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if cart_item:
+            session.delete(cart_item)
+
+    order.status = OrderStatus.PLACED
+    session.add(OrderStatusHistory(order_id=order.id, status=OrderStatus.PLACED, actor="system"))
+
+    payment.status = "captured"
+    payment.provider_payment_id = payment_id
+    payment.transaction_ref = payment_id
+    return True
 
 
 @router.post("/orders", status_code=201)
@@ -203,14 +332,20 @@ async def create_order(
     if not address or address.user_id != user.id:
         raise HTTPException(status_code=404, detail="Address not found")
 
+    # Checkout validation rules (phone verified, valid status, digipin present)
+    if not address.phone_verified:
+        raise HTTPException(status_code=400, detail="Address phone number is not verified via OTP")
+    if address.validation_status != "valid":
+        raise HTTPException(status_code=400, detail="Address has not passed validation agent check")
+    if not address.digipin:
+        raise HTTPException(status_code=400, detail="Required DIGIPIN is missing from address")
+
     cart_rows = session.execute(select(CartItem).where(CartItem.user_id == user.id)).scalars().all()
     if not cart_rows:
         raise HTTPException(status_code=400, detail="Cart is empty")
 
     razorpay_order: dict | None = None
     if payload.payment_mode == "prepaid" and not RazorpayClient(cfg).is_configured:
-        # Fail honestly before writing anything if Razorpay isn't configured -- never
-        # silently downgrade a buyer's chosen payment method to a fake success.
         raise HTTPException(status_code=503, detail="Prepaid payment unavailable: Razorpay is not configured")
 
     resolved: list[tuple[CartItem, ProductVariant, Product]] = []
@@ -225,14 +360,20 @@ async def create_order(
 
     order_id = f"O-{uuid4().hex[:10].upper()}"
     total_amount = round(sum(variant.price * cart_item.qty for cart_item, variant, _ in resolved), 2)
+
+    # Prepaid order starts as draft OrderStatus.CART, COD order finalized immediately
+    status = OrderStatus.CART if payload.payment_mode == "prepaid" else OrderStatus.PLACED
+
     order = Order(
         id=order_id,
         buyer_id=user.id,
         address_id=address.id,
-        status=OrderStatus.PLACED,
+        status=status,
         total_amount=total_amount,
         payment_mode=payload.payment_mode,
+        address_snapshot=_address_snapshot(address, user.name),
     )
+
     session.add(order)
     session.flush()
 
@@ -248,12 +389,17 @@ async def create_order(
                 price_at_purchase=variant.price,
             )
         )
-        variant.stock_qty -= cart_item.qty
-        session.delete(cart_item)
+        if payload.payment_mode == "cod":
+            session.delete(cart_item)
 
-    session.add(OrderStatusHistory(order_id=order_id, status=OrderStatus.PLACED, actor="system"))
-
-    if payload.payment_mode == "prepaid":
+    delivery_confirmation_queued = False
+    if payload.payment_mode == "cod":
+        session.add(OrderStatusHistory(order_id=order_id, status=OrderStatus.PLACED, actor="system"))
+        session.commit()
+        delivery_confirmation_queued = bool(
+            publish_event(ORDER_PLACED_STREAM, {"order_id": order_id, "buyer_id": user.id})
+        )
+    else:
         try:
             razorpay_order = RazorpayClient(cfg).create_order(amount_rupees=total_amount, receipt=order_id)
         except RazorpayUnavailable as exc:
@@ -265,24 +411,19 @@ async def create_order(
                 provider="razorpay",
                 status="pending",
                 transaction_ref=razorpay_order.get("id"),
+                provider_order_id=razorpay_order.get("id"),
                 amount=total_amount,
+                currency=razorpay_order.get("currency", "INR"),
             )
         )
-    # Commit before publishing: the Redis Streams consumer that reacts to this event
-    # can pick it up and query the order in a separate connection almost immediately,
-    # and a flush alone is only visible inside this transaction -- publishing before
-    # commit let the consumer race the commit and 404 on an order it can't see yet
-    # (observed live as a DataNotFoundError in Agent 7's background worker).
-    session.commit()
-
-    if payload.payment_mode == "cod":
-        publish_event(ORDER_PLACED_STREAM, {"order_id": order_id, "buyer_id": user.id})
+        session.commit()
 
     return {
         "order_id": order_id,
         "status": order.status,
         "total_amount": total_amount,
         "payment_mode": payload.payment_mode,
+        "delivery_confirmation_queued": delivery_confirmation_queued,
         "razorpay": (
             {
                 "razorpay_order_id": razorpay_order["id"],
@@ -310,6 +451,8 @@ async def verify_payment(
     payment = session.execute(select(Payment).where(Payment.order_id == order_id)).scalars().first()
     if not payment:
         raise HTTPException(status_code=404, detail="No payment record for this order")
+    if payment.provider_order_id != payload.razorpay_order_id:
+        raise HTTPException(status_code=400, detail="Payment order ID does not match this checkout")
 
     try:
         client = RazorpayClient(cfg)
@@ -323,58 +466,159 @@ async def verify_payment(
 
     if not verified:
         payment.status = "failed"
-        session.flush()
+        payment.failure_reason = "signature_verification_failed"
+        session.commit()
         raise HTTPException(status_code=400, detail="Payment signature verification failed")
 
-    payment.status = "captured"
-    payment.transaction_ref = payload.razorpay_payment_id
-    # Commit before publishing -- see the matching comment in create_order() above;
-    # the same consumer-races-the-commit failure applies here for the prepaid path.
+    finalized = _finalize_prepaid_order(session, order, payment, payload.razorpay_payment_id)
     session.commit()
-    publish_event(ORDER_PLACED_STREAM, {"order_id": order_id, "buyer_id": user.id})
-    return {"order_id": order_id, "payment_status": payment.status}
+    delivery_confirmation_queued = False
+    if finalized:
+        delivery_confirmation_queued = bool(
+            publish_event(ORDER_PLACED_STREAM, {"order_id": order_id, "buyer_id": user.id})
+        )
+    return {
+        "order_id": order_id,
+        "payment_status": payment.status,
+        "status": order.status,
+        "delivery_confirmation_queued": delivery_confirmation_queued,
+    }
+
+
+@router.get("/orders/{order_id}/payment-status")
+async def payment_status(
+    order_id: str,
+    user: Annotated[User, Depends(_require_buyer)],
+    session: Session = Depends(get_session),
+):
+    order = session.get(Order, order_id)
+    if not order or order.buyer_id != user.id:
+        raise HTTPException(status_code=404, detail="Order not found")
+    payment = session.execute(select(Payment).where(Payment.order_id == order_id)).scalars().first()
+    return {
+        "order_id": order.id,
+        "order_status": order.status,
+        "payment_status": payment.status if payment else "not_required",
+        "amount": order.total_amount,
+    }
 
 
 @router.get("/orders")
 async def list_my_orders(user: Annotated[User, Depends(_require_buyer)], session: Session = Depends(get_session)):
-    orders = session.execute(
-        select(Order).where(Order.buyer_id == user.id).order_by(Order.created_at.desc())
-    ).scalars().all()
+    orders = (
+        session.execute(
+            select(Order)
+            .where(Order.buyer_id == user.id, Order.status != OrderStatus.CART)
+            .order_by(Order.created_at.desc())
+        )
+        .scalars()
+        .all()
+    )
     order_ids = [o.id for o in orders]
     items_by_order: dict[str, list[OrderItem]] = {}
     if order_ids:
         for item in session.execute(select(OrderItem).where(OrderItem.order_id.in_(order_ids))).scalars():
             items_by_order.setdefault(item.order_id, []).append(item)
-    return [
-        {
+
+    # Batch-load return records and reviews for all relevant orders
+    returns_by_order: dict[str, ReturnRecord] = {}
+    if order_ids:
+        for rr in session.execute(
+            select(ReturnRecord).where(ReturnRecord.order_id.in_(order_ids))
+        ).scalars():
+            returns_by_order[rr.order_id] = rr
+
+    result = []
+    for order in orders:
+        order_items = items_by_order.get(order.id, [])
+        # Check if buyer has already reviewed any product in this order
+        product_ids = list({i.product_id for i in order_items})
+        reviewed_products: set[str] = set()
+        if product_ids and order.status == OrderStatus.DELIVERED:
+            for rv in session.execute(
+                select(Review).where(Review.buyer_id == user.id, Review.product_id.in_(product_ids))
+            ).scalars():
+                reviewed_products.add(rv.product_id)
+
+        rr = returns_by_order.get(order.id)
+        result.append({
             "id": order.id,
             "status": order.status,
             "total_amount": order.total_amount,
             "payment_mode": order.payment_mode,
+            "exchange_tag": order.exchange_tag,
+            "original_order_id": order.original_order_id,
             "created_at": order.created_at,
+            "return_info": {
+                "id": rr.id,
+                "return_type": rr.return_type,
+                "status": rr.status,
+                "decision": rr.decision,
+                "confidence_score": rr.confidence_score,
+                "pickup_date": rr.pickup_date,
+                "refund_status": rr.refund_status,
+                "replacement_order_id": rr.replacement_order_id,
+                "created_at": rr.created_at,
+            } if rr else None,
             "items": [
-                {"product_id": i.product_id, "product_name": session.get(Product, i.product_id).title,
-                 "image_url": session.get(Product, i.product_id).media_primary,
-                 "size": i.size, "qty": i.qty, "price_at_purchase": i.price_at_purchase}
-                for i in items_by_order.get(order.id, [])
+                {
+                    "product_id": i.product_id,
+                    "product_name": session.get(Product, i.product_id).title if session.get(Product, i.product_id) else "Unknown",
+                    "image_url": session.get(Product, i.product_id).media_primary if session.get(Product, i.product_id) else "",
+                    "size": i.size,
+                    "qty": i.qty,
+                    "price_at_purchase": i.price_at_purchase,
+                    "already_reviewed": i.product_id in reviewed_products,
+                }
+                for i in order_items
             ],
-        }
-        for order in orders
-    ]
+        })
+    return result
+
 
 
 @router.get("/returns")
-async def list_my_returns(user: Annotated[User, Depends(_require_buyer)], session: Session = Depends(get_session)):
-    rows = session.execute(
-        select(ReturnRecord).where(ReturnRecord.buyer_id == user.id).order_by(ReturnRecord.created_at.desc())
-    ).scalars().all()
-    return [{"id": row.id, "order_id": row.order_id, "reason": row.reason,
-             "status": row.decision or "pending_evidence", "decision": row.decision,
-             "confidence_score": row.confidence_score, "created_at": row.created_at} for row in rows]
+async def list_my_returns(
+    user: Annotated[User, Depends(_require_buyer)],
+    session: Session = Depends(get_session),
+):
+    rows = (
+        session.execute(
+            select(ReturnRecord).where(ReturnRecord.buyer_id == user.id).order_by(ReturnRecord.created_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        {
+            "id": row.id,
+            "order_id": row.order_id,
+            "reason": row.reason,
+            "return_type": row.return_type,
+            "status": row.status,
+            "decision": row.decision,
+            "confidence_score": row.confidence_score,
+            "pickup_date": row.pickup_date,
+            "pickup_status": row.pickup_status,
+            "refund_status": row.refund_status,
+            "refund_masked_details": row.refund_masked_details,
+            "replacement_order_id": row.replacement_order_id,
+            "evidence_images": row.evidence_images,
+            "evidence_checks": row.evidence_checks,
+            "status_timeline": row.status_timeline,
+            "decided_at": row.decided_at,
+            "created_at": row.created_at,
+        }
+        for row in rows
+    ]
 
 
 @router.post("/returns", status_code=201)
-async def create_return_request(payload: ReturnCreateRequest, user: Annotated[User, Depends(_require_buyer)], session: Session = Depends(get_session)):
+async def create_return_request(
+    payload: ReturnCreateRequest,
+    user: Annotated[User, Depends(_require_buyer)],
+    session: Session = Depends(get_session),
+):
     order = session.get(Order, payload.order_id)
     if not order or order.buyer_id != user.id:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -383,15 +627,31 @@ async def create_return_request(payload: ReturnCreateRequest, user: Annotated[Us
     existing = session.execute(select(ReturnRecord).where(ReturnRecord.order_id == order.id)).scalars().first()
     if existing:
         raise HTTPException(status_code=409, detail="A return already exists for this order")
+
+    return_type = getattr(payload, "return_type", "refund") or "refund"
+    if return_type not in ("refund", "exchange"):
+        return_type = "refund"
+
     record = ReturnRecord(
-        id=f"RT-{uuid4().hex[:10].upper()}", order_id=order.id, buyer_id=user.id,
-        reason=payload.reason, decision=None,
+        id=f"RT-{uuid4().hex[:10].upper()}",
+        order_id=order.id,
+        buyer_id=user.id,
+        reason=payload.reason,
+        return_type=return_type,
+        status="pending_evidence",
+        decision=None,
     )
     session.add(record)
     order.status = OrderStatus.RETURN_INITIATED
     session.add(OrderStatusHistory(order_id=order.id, status=OrderStatus.RETURN_INITIATED, actor="user"))
     session.flush()
-    return {"id": record.id, "order_id": record.order_id, "reason": record.reason, "status": "pending_evidence"}
+    return {
+        "id": record.id,
+        "order_id": record.order_id,
+        "reason": record.reason,
+        "return_type": record.return_type,
+        "status": record.status,
+    }
 
 
 @router.post("/reviews", status_code=201)
@@ -404,25 +664,52 @@ async def create_review(
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    if payload.order_id:
-        owns_order = session.execute(
-            select(OrderItem).where(
-                OrderItem.order_id == payload.order_id, OrderItem.product_id == payload.product_id
+    # Check that the user has a delivered order containing this product
+    has_delivered_order = (
+        session.execute(
+            select(Order)
+            .join(OrderItem, Order.id == OrderItem.order_id)
+            .where(
+                Order.buyer_id == user.id,
+                Order.id == payload.order_id,
+                Order.status == OrderStatus.DELIVERED,
+                OrderItem.product_id == payload.product_id
             )
-        ).scalars().first()
-        order = session.get(Order, payload.order_id)
-        if not owns_order or not order or order.buyer_id != user.id:
-            raise HTTPException(status_code=403, detail="This order doesn't match your purchase of this product")
+        )
+        .scalars()
+        .first()
+    )
+    if not has_delivered_order:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only review products you have purchased and had delivered."
+        )
+
+    # Check for duplicate review by the same buyer for this product
+    duplicate = (
+        session.execute(
+            select(Review).where(Review.buyer_id == user.id, Review.product_id == payload.product_id)
+        )
+        .scalars()
+        .first()
+    )
+    if duplicate:
+        raise HTTPException(
+            status_code=409,
+            detail="You have already submitted a review for this product."
+        )
 
     review_id = f"RV-{uuid4().hex[:10].upper()}"
     review = Review(
         id=review_id,
         product_id=payload.product_id,
         buyer_id=user.id,
+        order_id=payload.order_id,
         rating=payload.rating,
         text=payload.text,
         media=payload.image_key,
         is_hidden_by_agent=False,
+        awaiting_analysis=True,
     )
     session.add(review)
 
@@ -447,3 +734,447 @@ async def create_review(
         "media": payload.image_key,
         "agent4_queued": event_published is not None,
     }
+
+
+@router.post("/addresses/otp/send")
+async def send_otp(
+    payload: OtpSendRequest,
+    user: Annotated[User, Depends(_require_buyer)],
+    cfg: Settings = Depends(get_settings),
+    container=Depends(get_container),
+):
+    phone = payload.phone
+    active_session = container.repository.get_active_otp_session(user.id, phone, payload.address_session_id)
+    if active_session:
+        time_elapsed = datetime.now(UTC) - active_session.last_sent_at.replace(tzinfo=UTC)
+        cooldown = cfg.otp_resend_cooldown_seconds
+        if time_elapsed < timedelta(seconds=cooldown):
+            wait_sec = cooldown - int(time_elapsed.total_seconds())
+            raise HTTPException(status_code=429, detail=f"Please wait {wait_sec} seconds before requesting a new OTP")
+
+    demo_otp = cfg.otp_demo_code if cfg.app_mode == "demo" else None
+    otp_code = demo_otp or str(secrets.randbelow(900000) + 100000)
+    otp_hash = container.address_agent.otp_digest(otp_code)
+    expires_at = datetime.now(UTC) + timedelta(seconds=cfg.otp_expiry_seconds)
+
+    verification = container.repository.create_otp_session(
+        user.id, phone, payload.address_session_id, otp_hash, expires_at
+    )
+
+    twilio_configured = cfg.twilio_account_sid and cfg.twilio_auth_token and cfg.twilio_from_number
+    sent = False
+    if twilio_configured and not demo_otp:
+        try:
+            from twilio.rest import Client as TwilioClient
+
+            client = TwilioClient(cfg.twilio_account_sid, cfg.twilio_auth_token)
+            client.messages.create(
+                body=f"Your Kavach Saathi verification code is: {otp_code}. It expires shortly.",
+                from_=cfg.twilio_from_number,
+                to=phone,
+            )
+            sent = True
+            logging.info("Address verification OTP sent via Twilio")
+        except Exception:
+            logging.exception("Failed to send address verification OTP via Twilio")
+
+    if not sent and not demo_otp:
+        raise HTTPException(status_code=503, detail="OTP delivery is temporarily unavailable")
+
+    result = {
+        "message": "OTP sent successfully",
+        "verification_session_id": verification.id,
+        "expires_in": cfg.otp_expiry_seconds,
+        "resend_after": cfg.otp_resend_cooldown_seconds,
+    }
+    if demo_otp:
+        result["demo_otp"] = demo_otp
+    return result
+
+
+@router.post("/addresses/otp/verify")
+async def verify_otp(
+    payload: OtpVerifyRequest,
+    user: Annotated[User, Depends(_require_buyer)],
+    cfg: Settings = Depends(get_settings),
+    container=Depends(get_container),
+):
+    phone = payload.phone
+    otp = payload.otp
+
+    session = container.repository.get_active_otp_session(user.id, phone, payload.address_session_id)
+    if not session:
+        raise HTTPException(status_code=400, detail="No active verification session found for this phone")
+
+    if session.expires_at.replace(tzinfo=UTC) < datetime.now(UTC):
+        raise HTTPException(status_code=400, detail="OTP has expired. Please request a new one.")
+
+    if session.attempts >= cfg.otp_max_attempts:
+        raise HTTPException(status_code=400, detail="Too many failed attempts. Please request a new OTP.")
+
+    if not container.address_agent.otp_matches(session.otp_hash, otp):
+        attempts = container.repository.increment_otp_attempts(session.id)
+        if attempts >= cfg.otp_max_attempts:
+            raise HTTPException(status_code=400, detail="Too many failed attempts. Please request a new OTP.")
+        raise HTTPException(status_code=400, detail="Incorrect verification code")
+
+    container.repository.mark_otp_verified(session.id)
+    return {"message": "Phone number verified successfully", "verification_session_id": session.id}
+
+
+@router.get("/addresses")
+async def get_addresses(
+    user: Annotated[User, Depends(_require_buyer)],
+    container=Depends(get_container),
+):
+    addresses = container.repository.get_user_addresses(user.id)
+    return [_address_out(address) for address in addresses]
+
+
+@router.post("/addresses/validate")
+async def validate_address_endpoint(
+    payload: AddressVerifyRequest,
+    user: Annotated[User, Depends(_require_buyer)],
+    container=Depends(get_container),
+):
+    payload.buyer_id = user.id
+    run_record = await container.service.execute(WorkflowType.ADDRESS, payload.model_dump(mode="json"))
+    res = run_record.results.get("address_guardian")
+    if not res:
+        raise HTTPException(status_code=500, detail="Address validation agent failed to run")
+    return res.data
+
+
+@router.post("/addresses/geocode")
+async def geocode_address(
+    payload: AddressGeocodeRequest,
+    user: Annotated[User, Depends(_require_buyer)],
+    container=Depends(get_container),
+):
+    del user
+    text = ", ".join(
+        part
+        for part in (
+            payload.address_line1,
+            payload.address_line2,
+            payload.locality,
+            payload.city,
+            payload.district,
+            payload.state,
+            payload.postal_pin,
+            payload.country,
+        )
+        if part
+    )
+    try:
+        return await container.address_agent.resolve_manual_address(text)
+    except GoogleMapsUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/addresses/reverse-geocode")
+async def reverse_geocode_address(
+    payload: Coordinates,
+    user: Annotated[User, Depends(_require_buyer)],
+    container=Depends(get_container),
+):
+    del user
+    try:
+        return await container.address_agent.resolve_coordinates(payload.latitude, payload.longitude)
+    except GoogleMapsUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/addresses", status_code=201)
+async def add_address(
+    payload: AddressCreateRequest,
+    user: Annotated[User, Depends(_require_buyer)],
+    container=Depends(get_container),
+):
+    verified_session = container.repository.get_verified_phone_session(
+        user.id, payload.phone, payload.verification_session_id
+    )
+    if not verified_session:
+        raise HTTPException(status_code=400, detail="Phone number is not verified. Please verify via OTP first.")
+
+    verify_req = AddressVerifyRequest(
+        buyer_id=user.id,
+        postal_pin=payload.postal_pin,
+        coordinates=Coordinates(latitude=payload.latitude, longitude=payload.longitude),
+        recipient_name=payload.recipient_name,
+        phone=payload.phone,
+        address_line1=payload.address_line1,
+        address_line2=payload.address_line2,
+        locality=payload.locality,
+        city=payload.city,
+        district=payload.district,
+        state=payload.state,
+        country=payload.country,
+        address_type=payload.address_type,
+    )
+
+    run_record = await container.service.execute(WorkflowType.ADDRESS, verify_req.model_dump(mode="json"))
+    res = run_record.results.get("address_guardian")
+    if not res:
+        raise HTTPException(status_code=500, detail="Address validation agent failed")
+
+    validation_status = res.data.get("status", "needs_correction")
+    validation_explanation = res.data.get("reason", "")
+
+    if validation_status != "valid":
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Address verification failed. Please correct the fields.",
+                "errors": res.data.get("field_errors"),
+                "suggested": res.data.get("suggested_address"),
+                "explanation": validation_explanation,
+            },
+        )
+
+    existing = container.repository.get_user_addresses(user.id)
+    address_id = container.repository.save_verified_address(
+        user.id,
+        raw_address=res.data["normalized_address"],
+        city=payload.city,
+        state=payload.state,
+        postal_pin=payload.postal_pin,
+        latitude=res.data["latitude"],
+        longitude=res.data["longitude"],
+        digipin=res.data["digipin"],
+        recipient_name=payload.recipient_name,
+        phone=payload.phone,
+        address_line1=payload.address_line1,
+        address_line2=payload.address_line2,
+        locality=payload.locality,
+        district=payload.district,
+        country=payload.country,
+        address_type=payload.address_type,
+        phone_verified=True,
+        validation_status=validation_status,
+        validation_explanation=validation_explanation,
+        is_default=payload.is_default or not existing,
+    )
+    addr = container.repository.get_address(address_id)
+    return _address_out(addr)
+
+
+@router.put("/addresses/{address_id}")
+async def update_address(
+    address_id: str,
+    payload: AddressUpdateRequest,
+    user: Annotated[User, Depends(_require_buyer)],
+    container=Depends(get_container),
+):
+    addr = container.repository.get_address(address_id)
+    if not addr or addr.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Address not found")
+
+    if payload.phone and payload.phone != addr.phone:
+        if not payload.verification_session_id:
+            raise HTTPException(status_code=400, detail="New phone number must be verified via OTP.")
+        verified_session = container.repository.get_verified_phone_session(
+            user.id, payload.phone, payload.verification_session_id
+        )
+        if not verified_session:
+            raise HTTPException(status_code=400, detail="New phone number is not verified via OTP.")
+
+    fields_changed = any(
+        getattr(payload, k) is not None and getattr(payload, k) != getattr(addr, k)
+        for k in ["address_line1", "city", "state", "postal_pin", "latitude", "longitude"]
+    )
+
+    validation_status = addr.validation_status
+    validation_explanation = addr.validation_explanation
+
+    if fields_changed:
+        verify_req = AddressVerifyRequest(
+            buyer_id=user.id,
+            postal_pin=payload.postal_pin or addr.postal_pin,
+            coordinates=Coordinates(
+                latitude=payload.latitude if payload.latitude is not None else addr.latitude,
+                longitude=payload.longitude if payload.longitude is not None else addr.longitude,
+            ),
+            recipient_name=payload.recipient_name or addr.recipient_name,
+            phone=payload.phone or addr.phone,
+            address_line1=payload.address_line1 or addr.address_line1,
+            address_line2=payload.address_line2 if payload.address_line2 is not None else addr.address_line2,
+            locality=payload.locality if payload.locality is not None else addr.locality,
+            city=payload.city or addr.city,
+            district=payload.district or addr.district,
+            state=payload.state or addr.state,
+            country=payload.country or addr.country,
+            address_type=payload.address_type or addr.address_type,
+        )
+        run_record = await container.service.execute(WorkflowType.ADDRESS, verify_req.model_dump(mode="json"))
+        res = run_record.results.get("address_guardian")
+        if not res:
+            raise HTTPException(status_code=500, detail="Address re-validation failed")
+
+        validation_status = res.data.get("status", "needs_correction")
+        validation_explanation = res.data.get("reason", "")
+
+        if validation_status != "valid":
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Re-validation failed. Please correct details.",
+                    "errors": res.data.get("field_errors"),
+                    "suggested": res.data.get("suggested_address"),
+                    "explanation": validation_explanation,
+                },
+            )
+
+    with container.repository._session() as db_session:
+        db_addr = db_session.get(Address, address_id)
+        for k, v in payload.model_dump(exclude_unset=True).items():
+            if k in {"is_default", "verification_session_id"}:
+                continue
+            setattr(db_addr, k, v)
+        if fields_changed:
+            db_addr.raw_text = res.data["normalized_address"]
+            db_addr.latitude = res.data["latitude"]
+            db_addr.longitude = res.data["longitude"]
+            db_addr.digipin = res.data["digipin"]
+            db_addr.verified_bool = True
+        if payload.phone and payload.phone != addr.phone:
+            db_addr.phone_verified = True
+        db_addr.validation_status = validation_status
+        db_addr.validation_explanation = validation_explanation
+        db_session.commit()
+
+    if payload.is_default:
+        container.repository.set_default_address(user.id, address_id)
+
+    updated_addr = container.repository.get_address(address_id)
+    return _address_out(updated_addr)
+
+
+@router.delete("/addresses/{address_id}")
+async def delete_address_endpoint(
+    address_id: str,
+    user: Annotated[User, Depends(_require_buyer)],
+    container=Depends(get_container),
+):
+    addr = container.repository.get_address(address_id)
+    if not addr or addr.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Address not found")
+    try:
+        container.repository.delete_address(address_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"message": "Address deleted successfully"}
+
+
+@router.post("/addresses/{address_id}/default")
+async def make_address_default(
+    address_id: str,
+    user: Annotated[User, Depends(_require_buyer)],
+    container=Depends(get_container),
+):
+    addr = container.repository.get_address(address_id)
+    if not addr or addr.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Address not found")
+    container.repository.set_default_address(user.id, address_id)
+    return {"message": "Address set as default"}
+
+
+@router.post("/payments/razorpay-webhook")
+async def razorpay_webhook(
+    request: Request,
+    cfg: Settings = Depends(get_settings),
+    session: Session = Depends(get_session),
+):
+    signature = request.headers.get("X-Razorpay-Signature", "")
+    body = await request.body()
+
+    if not cfg.razorpay_webhook_secret:
+        raise HTTPException(status_code=503, detail="Razorpay webhook verification is not configured")
+    expected = hmac.new(cfg.razorpay_webhook_secret.encode(), body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, signature):
+        raise HTTPException(status_code=400, detail="Invalid webhook signature")
+
+    try:
+        payload = json.loads(body.decode())
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid webhook payload") from exc
+    event = payload.get("event")
+    payload_hash = hashlib.sha256(body).hexdigest()
+    event_id = request.headers.get("X-Razorpay-Event-Id") or payload.get("id") or payload_hash
+    existing_event = (
+        session.execute(select(RazorpayWebhookEvent).where(RazorpayWebhookEvent.event_id == event_id)).scalars().first()
+    )
+    if existing_event:
+        return {"status": "ok", "duplicate": True}
+
+    event_record = RazorpayWebhookEvent(
+        event_id=event_id,
+        event_type=event or "unknown",
+        payload_hash=payload_hash,
+        status="processing",
+    )
+    session.add(event_record)
+    session.flush()
+
+    finalized_order: Order | None = None
+    if event in ("order.paid", "payment.captured"):
+        payment_payload = payload.get("payload", {}).get("payment", {}).get("entity", {})
+        razorpay_order_id = payment_payload.get("order_id")
+        razorpay_payment_id = payment_payload.get("id")
+
+        if razorpay_order_id and razorpay_payment_id:
+            payment = (
+                session.execute(select(Payment).where(Payment.provider_order_id == razorpay_order_id)).scalars().first()
+            )
+            if payment:
+                order = session.get(Order, payment.order_id)
+                if order and order.status == OrderStatus.CART:
+                    if _finalize_prepaid_order(session, order, payment, razorpay_payment_id):
+                        finalized_order = order
+    elif event == "payment.failed":
+        payment_payload = payload.get("payload", {}).get("payment", {}).get("entity", {})
+        razorpay_order_id = payment_payload.get("order_id")
+        payment = (
+            session.execute(select(Payment).where(Payment.provider_order_id == razorpay_order_id)).scalars().first()
+        )
+        if payment and payment.status != "captured":
+            payment.status = "failed"
+            payment.failure_reason = payment_payload.get("error_description") or "provider_reported_failure"
+
+    event_record.status = "processed"
+    event_record.processed_at = datetime.now(UTC)
+    session.commit()
+    if finalized_order:
+        publish_event(
+            ORDER_PLACED_STREAM,
+            {"order_id": finalized_order.id, "buyer_id": finalized_order.buyer_id},
+        )
+    return {"status": "ok", "duplicate": False}
+
+
+class SupportLogRequest(BaseModel):
+    channel: Literal["call", "email"]
+
+
+@router.get("/support/info")
+async def get_support_info():
+    return {
+        "phone": "+91-9748572321",
+        "email": "manyagupta.123.ag@gmail.com"
+    }
+
+
+@router.post("/support/log")
+async def log_support_interaction(
+    payload: SupportLogRequest,
+    user: Annotated[User, Depends(_require_buyer)],
+    session: Session = Depends(get_session),
+):
+    interaction = SupportInteraction(
+        user_id=user.id,
+        channel=payload.channel,
+    )
+    session.add(interaction)
+    session.commit()
+    return {"status": "logged", "id": interaction.id}
+

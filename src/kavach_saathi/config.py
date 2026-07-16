@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     razorpay_key_id: str | None = None
     razorpay_key_secret: str | None = None
+    razorpay_webhook_secret: str | None = None
     digilocker_client_id: str | None = None
     digilocker_client_secret: str | None = None
     google_maps_api_key: str | None = None
@@ -83,6 +84,10 @@ class Settings(BaseSettings):
     twilio_auth_token: str | None = None
     twilio_from_number: str | None = None
     twilio_whatsapp_from: str = "whatsapp:+14155238886"  # Twilio's shared sandbox number
+    otp_demo_code: str | None = None
+    otp_expiry_seconds: int = Field(default=300, ge=60, le=900)
+    otp_resend_cooldown_seconds: int = Field(default=60, ge=15, le=300)
+    otp_max_attempts: int = Field(default=3, ge=1, le=10)
 
     # Publicly reachable base URL for this backend (e.g. an ngrok tunnel) -- Twilio's
     # servers must be able to reach us to fetch call instructions and post back the

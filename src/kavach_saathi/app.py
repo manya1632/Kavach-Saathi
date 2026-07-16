@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from mangum import Mangum
 from sqlalchemy.orm import Session
@@ -34,7 +34,6 @@ from kavach_saathi.events import start_order_consumer, start_review_consumer
 from kavach_saathi.models import (
     AddressVerifyRequest,
     AuthUser,
-    ConfirmationRequest,
     HealthResponse,
     ListingAnalyzeRequest,
     LoginRequest,
@@ -112,14 +111,12 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    static_dir = Path(__file__).with_name("static")
-    app.mount("/static", StaticFiles(directory=static_dir), name="static")
     if settings.asset_dir.exists():
         app.mount("/mock-assets", StaticFiles(directory=settings.asset_dir), name="mock-assets")
 
     @app.get("/", include_in_schema=False)
     async def frontend():
-        return FileResponse(static_dir / "index.html")
+        return RedirectResponse(settings.frontend_origin)
 
     @app.exception_handler(DataNotFoundError)
     async def data_not_found(_: Request, exc: DataNotFoundError):
@@ -237,8 +234,14 @@ def create_app() -> FastAPI:
         # `order.placed` event (gap_report B1).
         start_order_consumer(container)
 
-    def storefront_product(product: dict, container: Container) -> dict:
-        seller = container.repository.get("sellers", product["seller_id"])
+    def storefront_product(
+        product: dict,
+        container: Container,
+        *,
+        seller: dict | None = None,
+        include_gallery: bool = True,
+    ) -> dict:
+        seller = seller or container.repository.get("sellers", product["seller_id"])
         media_path = product["media"]["primary"].removeprefix("assets/mock/")
         original_price = product["original_price"]
         discount = round((1 - product["price"] / original_price) * 100)
@@ -280,11 +283,11 @@ def create_app() -> FastAPI:
                     "url": f"/mock-assets/{image['url'].removeprefix('assets/mock/')}",
                     "verified": image["verified"],
                 }
-                for image in container.repository.product_images(product["id"])
-            ] or [
+                for image in (container.repository.product_images(product["id"]) if include_gallery else [])
+            ] or ([
                 {"angle": angle, "url": f"/mock-assets/{media_path}", "verified": False}
                 for angle in ("front", "back", "left", "right")
-            ],
+            ] if include_gallery else []),
         }
 
     @app.get(f"{prefix}/storefront/products")
@@ -295,6 +298,26 @@ def create_app() -> FastAPI:
         container: Container = Depends(get_container),
     ):
         products = container.repository.list("products")
+        # Filter out non-active products
+        products = [product for product in products if product.get("status") == "active"]
+
+        # Sort by activation_timestamp descending
+        from datetime import datetime, UTC
+        min_dt = datetime.min.replace(tzinfo=UTC)
+
+        def get_activation_time(p):
+            ts = p.get("activation_timestamp")
+            if not ts:
+                return min_dt
+            if isinstance(ts, str):
+                try:
+                    return datetime.fromisoformat(ts)
+                except ValueError:
+                    return min_dt
+            return ts
+
+        products.sort(key=get_activation_time, reverse=True)
+
         if q:
             term = q.casefold()
             products = [
@@ -313,13 +336,23 @@ def create_app() -> FastAPI:
             ]
         if category and category != "All":
             products = [product for product in products if product["category"] == category]
+        sellers = {seller["id"]: seller for seller in container.repository.list("sellers")}
+        active_categories = {product["category"] for product in products}
         return {
-            "items": [storefront_product(product, container) for product in products[:limit]],
+            "items": [
+                storefront_product(
+                    product,
+                    container,
+                    seller=sellers.get(product["seller_id"]),
+                    include_gallery=False,
+                )
+                for product in products[:limit]
+            ],
             "total": len(products),
             "categories": [
                 item
                 for item in STOREFRONT_CATEGORIES
-                if any(product["category"] == item for product in container.repository.list("products"))
+                if item in active_categories
             ],
         }
 
@@ -332,18 +365,62 @@ def create_app() -> FastAPI:
         result["review_report"] = container.repository.review_report(product_id)
         return result
 
-    @app.get(f"{prefix}/storefront/demo-context")
-    async def storefront_demo_context(container: Container = Depends(get_container)):
-        buyer = container.repository.get("buyers", "B-001")
-        order = container.repository.get("orders", "O-GOLDEN")
-        address = container.repository.get("addresses", "A-001")
-        return {
-            "buyer": buyer,
-            "order": order,
-            "address": address,
-            "agent_count": 8,
-            "simulation": {"delivery_confirmation": True},
-        }
+    @app.get(f"{prefix}/storefront/products/{{product_id}}/similar")
+    async def similar_products(product_id: str, container: Container = Depends(get_container)):
+        """Returns up to 8 active and in-stock products in the same category (excluding current),
+        with comparable price range (+-20%) and sorted by spec overlap and activation_timestamp DESC."""
+        from datetime import datetime, UTC as _UTC
+        product = container.repository.get("products", product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        product_price = product.get("price", 0.0)
+        product_category = product.get("category")
+        product_specs = product.get("specs", {})
+
+        all_products = container.repository.list("products")
+        candidates = []
+        for p in all_products:
+            if p.get("id") == product_id:
+                continue
+            if p.get("status") != "active":
+                continue
+            if p.get("stock", 0) <= 0:
+                continue
+            if p.get("category") != product_category:
+                continue
+            
+            price = p.get("price", 0.0)
+            # Price must be within 20% range
+            if abs(price - product_price) > 0.2 * product_price:
+                continue
+                
+            candidates.append(p)
+
+        def get_similarity_score(p):
+            p_specs = p.get("specs", {})
+            score = 0
+            for key, val in product_specs.items():
+                if key in p_specs and p_specs[key] == val:
+                    score += 1
+            return score
+
+        _min_dt = datetime.min.replace(tzinfo=_UTC)
+
+        def _activation_ts(p):
+            ts = p.get("activation_timestamp")
+            if not ts:
+                return _min_dt
+            if isinstance(ts, str):
+                try:
+                    return datetime.fromisoformat(ts)
+                except ValueError:
+                    return _min_dt
+            return ts
+
+        candidates.sort(key=lambda p: (get_similarity_score(p), _activation_ts(p)), reverse=True)
+        return {"items": [storefront_product(p, container) for p in candidates[:8]]}
+
 
     async def run(
         workflow: WorkflowType,
@@ -422,14 +499,6 @@ def create_app() -> FastAPI:
     @app.post(f"{prefix}/address/verify", response_model=RunEnvelope)
     async def verify_address(payload: AddressVerifyRequest, container: Container = Depends(get_container)):
         return await run(WorkflowType.ADDRESS, payload, container)
-
-    @app.post(f"{prefix}/orders/{{order_id}}/confirm-simulated", response_model=RunEnvelope)
-    async def confirm_delivery(
-        order_id: str,
-        payload: ConfirmationRequest,
-        container: Container = Depends(get_container),
-    ):
-        return await run(WorkflowType.CONFIRMATION, payload, container, order_id=order_id)
 
     @app.post(f"{prefix}/returns/analyze", response_model=RunEnvelope)
     async def analyze_return(payload: ReturnAnalyzeRequest, container: Container = Depends(get_container)):

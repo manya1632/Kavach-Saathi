@@ -26,10 +26,11 @@ async def spec_extract(payload: SpecExtractRequest, container: Container = Depen
     Claude OCR + CLIP/ResNet-50 pipeline as the `/listings/analyze` fan-out, addressable
     on its own so a judge (or the seller portal) can call it directly per the spec."""
     product = container.repository.get("products", payload.product_id)
+    image_key = product["media"]["primary"]
     request = ListingAnalyzeRequest(
         seller_id=product["seller_id"],
         product_id=payload.product_id,
-        image_keys=[product["media"]["primary"]],
+        image_keys=[image_key],
         # The seller's originally-declared values (product.spec_json, exposed here as
         # product["specs"]) -- without this, seller_specs was always {}, so Agent 2's
         # "applicable_fields = fields the seller actually declared" check always came

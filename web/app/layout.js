@@ -2,7 +2,7 @@ import "./globals.css";
 
 export const metadata = {
   title: "Kavach Saathi Shop",
-  description: "An agent-powered social commerce storefront demo.",
+  description: "An agent-powered social commerce storefront.",
 };
 
 export default function RootLayout({ children }) {

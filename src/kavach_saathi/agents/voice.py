@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
 from kavach_saathi.agents.base import Agent
+from kavach_saathi.agent_logging import log_agent_call
+from kavach_saathi.db.base import SessionLocal
 from kavach_saathi.config import get_settings
 from kavach_saathi.media_storage import read_image_bytes, write_generated_image
 from kavach_saathi.models import AgentName, AgentResult, Evidence, VoiceQueryRequest
@@ -106,18 +109,18 @@ class VoiceQAAgent(Agent):
         )
 
         grounded_products = [
-                {
-                    "id": p["id"],
-                    "name": p["name"],
-                    "price": p["price"],
-                    "specs": p.get("specs", {}),
-                    "specifications": p.get("specifications", []),
-                    "size_chart_cm": p.get("size_chart", {}),
-                    "return_window_days": p.get("return_window_days", 7),
-                    "seller": sellers[p["seller_id"]],
-                }
-                for p in products
-            ]
+            {
+                "id": p["id"],
+                "name": p["name"],
+                "price": p["price"],
+                "specs": p.get("specs", {}),
+                "specifications": p.get("specifications", []),
+                "size_chart_cm": p.get("size_chart", {}),
+                "return_window_days": p.get("return_window_days", 7),
+                "seller": sellers[p["seller_id"]],
+            }
+            for p in products
+        ]
         grounded = {
             "question": transcript,
             "products": grounded_products,
@@ -138,18 +141,23 @@ class VoiceQAAgent(Agent):
             # each group answer and the complete ID list so nothing is silently cut.
             partial_answers = []
             for start in range(0, len(grounded_products), 20):
-                chunk = grounded_products[start:start + 20]
+                chunk = grounded_products[start : start + 20]
                 partial = await self.context.reasoner.structured(
                     system=_SYSTEM_PROMPT,
-                    prompt=f"Compare this complete subset for: {transcript}\nProducts: {json.dumps(chunk, ensure_ascii=False, default=str)}",
+                    prompt=(
+                        f"Compare this complete subset for: {transcript}\nProducts: "
+                        f"{json.dumps(chunk, ensure_ascii=False, default=str)}"
+                    ),
                     schema=VoiceAnswer,
                     reasoning_effort="low",
                 )
                 partial_answers.append(partial.model_dump())
             answer = await self.context.reasoner.structured(
                 system=_SYSTEM_PROMPT,
-                prompt=(f"Synthesize the category-wide comparison for: {transcript}\n"
-                        f"All product IDs: {product_ids}\nSubset answers: {json.dumps(partial_answers, ensure_ascii=False)}"),
+                prompt=(
+                    f"Synthesize the category-wide comparison for: {transcript}\n"
+                    f"All product IDs: {product_ids}\nSubset answers: {json.dumps(partial_answers, ensure_ascii=False)}"
+                ),
                 schema=VoiceAnswer,
                 reasoning_effort="low",
             )
@@ -182,9 +190,11 @@ class VoiceQAAgent(Agent):
             lines["en"] = [f"{p['name']}: Rs {p['price']}" for p in products]
             joined = {code: "; ".join(items) for code, items in lines.items()}
             comparable_details = " | ".join(
-                f"{product['name']}: " + ", ".join(
+                f"{product['name']}: "
+                + ", ".join(
                     f"{item['label']}={item['value']}{(' ' + item['unit']) if item.get('unit') else ''}"
-                    for item in product.get("specifications", []) if item.get("comparable", True)
+                    for item in product.get("specifications", [])
+                    if item.get("comparable", True)
                 )
                 for product in products
             )
@@ -224,6 +234,7 @@ class VoiceQAAgent(Agent):
         }
 
     async def run(self, request: VoiceQueryRequest, size_result: AgentResult | None = None) -> AgentResult:
+        started_at = time.perf_counter()
         settings = get_settings()
         buyer = self.context.repository.get("buyers", request.buyer_id)
         transcript_source = "text"
@@ -232,14 +243,11 @@ class VoiceQAAgent(Agent):
         else:
             try:
                 audio_bytes = await read_image_bytes(request.audio_key or "", settings)
-                content_type = _AUDIO_CONTENT_TYPES.get(
-                    Path(request.audio_key or "").suffix.lower(), "audio/wav"
-                )
+                content_type = _AUDIO_CONTENT_TYPES.get(Path(request.audio_key or "").suffix.lower(), "audio/wav")
                 transcript = await self.sarvam.transcribe(audio_bytes, request.language, content_type=content_type)
                 transcript_source = "sarvam_stt"
-            except (SarvamUnavailable, FileNotFoundError):
-                transcript = "Mujhe kaunsa size lena chahiye?"
-                transcript_source = "sarvam_unavailable_demo_transcript"
+            except (SarvamUnavailable, FileNotFoundError) as exc:
+                raise RuntimeError("Voice transcription could not be completed") from exc
 
         products = self.context.repository.comparison_products(
             transcript, request.product_id, request.compare_product_ids
@@ -252,7 +260,9 @@ class VoiceQAAgent(Agent):
         if size_result:
             # size_result may predate this fix and only carry en/hi -- fall back to
             # English for the newer language codes rather than crash on a missing key.
-            answers = {code: size_result.user_message.get(code, size_result.user_message["en"]) for code in _LANGUAGE_CODES}
+            answers = {
+                code: size_result.user_message.get(code, size_result.user_message["en"]) for code in _LANGUAGE_CODES
+            }
             confidence = size_result.confidence
             retrieved: dict = {}
             provider = "size_translator_handoff"
@@ -279,15 +289,11 @@ class VoiceQAAgent(Agent):
                 content_type="audio/wav",
             )
         except SarvamUnavailable:
-            # Only en/hi have a pre-recorded placeholder clip on disk (see
-            # assets/mock/audio/) -- bn/mr/gu text answers are real (see `answers`
-            # above), but this static fallback audio can't honestly claim to be in
-            # those languages when Sarvam itself is the thing that's unavailable, so
-            # it falls back to English rather than mislabeling a Hindi clip as Bengali.
-            lang_suffix = request.language if request.language in ("en", "hi") else "en"
-            audio_key = f"assets/mock/audio/demo-{lang_suffix}.wav"
+            # Preserve the grounded text answer without pretending a prerecorded clip
+            # is synthesized speech from this request.
+            audio_key = None
 
-        return AgentResult(
+        result = AgentResult(
             agent=AgentName.VOICE_QA,
             confidence=confidence,
             summary=answers["en"],
@@ -305,3 +311,17 @@ class VoiceQAAgent(Agent):
             },
             user_message=answers,
         )
+        with SessionLocal() as session:
+            log_agent_call(
+                session,
+                agent_name="voice_qa",
+                entity_type="product",
+                entity_id=request.product_id,
+                confidence=confidence,
+                latency_ms=round((time.perf_counter() - started_at) * 1000),
+                input_ref=request.audio_key or transcript[:255],
+                provider=provider,
+                output_json=result.data,
+            )
+            session.commit()
+        return result

@@ -120,6 +120,7 @@ class SpecEnforcerAgent(Agent):
             status = RunStatus.NEEDS_EVIDENCE
             confidence = max(20, 55 - len(mismatches) * 15)
             summary = "Seller-claimed specs conflict with what the catalogue image shows."
+            self.context.repository.update_product_specs(product["id"], status="inconsistent")
             actions = [
                 AgentAction(
                     type="revise_listing", label="Resolve spec conflicts", payload={"mismatches": mismatches}
@@ -145,8 +146,9 @@ class SpecEnforcerAgent(Agent):
             confidence = min(99, 55 + len(final) * 10 + (10 if extracted.label_visible else 0))
             summary = "Specs extracted from the catalogue image and cross-checked against CV analysis."
             spec_source = "extracted" if all(sources.get(f) == ocr_source_label for f in final) else "seller_form"
+            prod_status = "draft" if product.get("status") == "extracting" else "active"
             self.context.repository.update_product_specs(
-                product["id"], spec_json=final, spec_source=spec_source, status="active"
+                product["id"], spec_json=final, spec_source=spec_source, status=prod_status
             )
             actions = [AgentAction(type="approve_specs", label="Listing approved")]
 
@@ -180,7 +182,20 @@ class SpecEnforcerAgent(Agent):
         )
 
         latency_ms = round((time.perf_counter() - started_at) * 1000)
+        from kavach_saathi.db.models import Product
         with SessionLocal() as session:
+            db_product = session.get(Product, product["id"])
+            if db_product:
+                db_product.extraction_results = {
+                    "extracted_specs": final,
+                    "confidence": confidence,
+                    "evidence": {
+                        "vision_extraction": extracted.model_dump(),
+                        "cv_cross_check": cv_result,
+                        "ocr_error": ocr_error,
+                        "conflicts": mismatches,
+                    }
+                }
             log_agent_call(
                 session,
                 agent_name="spec_enforcer",
@@ -199,3 +214,4 @@ class SpecEnforcerAgent(Agent):
             session.commit()
 
         return result
+

@@ -27,14 +27,8 @@ class StableDiffusionFallback:
     def _load(cls) -> None:
         if cls._pipeline is not None:
             return
-        import torch
-        from diffusers import ControlNetModel, StableDiffusionControlNetPipeline
-
-        controlnet = ControlNetModel.from_pretrained(_CONTROLNET_CHECKPOINT, torch_dtype=torch.float32)
-        cls._pipeline = StableDiffusionControlNetPipeline.from_pretrained(
-            _SD_CHECKPOINT, controlnet=controlnet, torch_dtype=torch.float32, safety_checker=None
-        )
-        cls._pipeline.set_progress_bar_config(disable=True)
+        from kavach_saathi.model_registry import get_stable_diffusion
+        cls._pipeline = get_stable_diffusion()
 
     async def generate_view(self, garment_png: bytes, view: str, *, seed: int) -> bytes:
         import asyncio

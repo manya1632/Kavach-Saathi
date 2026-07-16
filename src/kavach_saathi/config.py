@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     pinecone_size_index: str = "kavach-saathi-size-rag"
     pinecone_qa_index: str = "kavach-saathi-voice-qa"
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    warm_up_on_startup: bool = False
     razorpay_key_id: str | None = None
     razorpay_key_secret: str | None = None
     razorpay_webhook_secret: str | None = None

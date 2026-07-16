@@ -54,21 +54,17 @@ class FabricVisionClassifier:
     def _load_clip(cls) -> None:
         if cls._clip_model is not None:
             return
-        from transformers import CLIPModel, CLIPProcessor
-
-        cls._clip_model = CLIPModel.from_pretrained(_CLIP_CHECKPOINT)
-        cls._clip_processor = CLIPProcessor.from_pretrained(_CLIP_CHECKPOINT)
-        cls._clip_model.eval()
+        from kavach_saathi.config import get_settings
+        from kavach_saathi.model_registry import get_clip
+        cls._clip_model, cls._clip_processor = get_clip(get_settings())
 
     @classmethod
     def _load_resnet(cls) -> None:
         if cls._resnet_model is not None:
             return
-        from torchvision.models import ResNet50_Weights, resnet50
-
-        weights = ResNet50_Weights.IMAGENET1K_V2
-        cls._resnet_model = resnet50(weights=weights)
-        cls._resnet_model.eval()
+        from kavach_saathi.model_registry import get_resnet
+        weights, model = get_resnet()
+        cls._resnet_model = model
         cls._resnet_categories = weights.meta["categories"]
         cls._resnet_transform = weights.transforms()
 

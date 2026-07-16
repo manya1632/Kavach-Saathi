@@ -30,29 +30,26 @@ class ReviewRelevanceClassifier:
     def _load_clip(cls) -> None:
         if cls._clip_model is not None:
             return
-        from transformers import CLIPModel, CLIPProcessor
-
-        cls._clip_model = CLIPModel.from_pretrained(_CLIP_CHECKPOINT)
-        cls._clip_processor = CLIPProcessor.from_pretrained(_CLIP_CHECKPOINT)
-        cls._clip_model.eval()
+        from kavach_saathi.config import get_settings
+        from kavach_saathi.model_registry import get_clip
+        cls._clip_model, cls._clip_processor = get_clip(get_settings())
 
     @classmethod
     def _load_bert(cls) -> None:
         if cls._bert_model is not None:
             return
-        from transformers import AutoModel, AutoTokenizer
-
-        cls._bert_tokenizer = AutoTokenizer.from_pretrained(_BERT_CHECKPOINT)
-        cls._bert_model = AutoModel.from_pretrained(_BERT_CHECKPOINT)
-        cls._bert_model.eval()
+        from kavach_saathi.model_registry import get_bert
+        cls._bert_tokenizer, cls._bert_model = get_bert()
 
     def _clip_image_text_similarity(self, image, text: str) -> float:
         import torch
 
         self._load_clip()
         inputs = self._clip_processor(text=[text], images=image, return_tensors="pt", padding=True)
-        with torch.no_grad():
-            outputs = self._clip_model(**inputs)
+        from kavach_saathi.model_registry import log_timing
+        with log_timing("inference", "clip_image_text_similarity"):
+            with torch.no_grad():
+                outputs = self._clip_model(**inputs)
         image_embeds = outputs.image_embeds / outputs.image_embeds.norm(dim=-1, keepdim=True)
         text_embeds = outputs.text_embeds / outputs.text_embeds.norm(dim=-1, keepdim=True)
         return float((image_embeds @ text_embeds.T).item())

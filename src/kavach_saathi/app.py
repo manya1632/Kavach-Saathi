@@ -666,7 +666,9 @@ def create_app() -> FastAPI:
             compare_product_ids=[],
             text=payload.text,
             audio_key=payload.audio_key,
-            synthesize_audio=bool(payload.audio_key),
+            # Typed and recorded questions share one response contract: readable
+            # grounded text plus Sarvam audio in the detected answer language.
+            synthesize_audio=True,
             voice_flow="general",
             language=payload.language,
             page_route=conversation.get("page_route"),

@@ -302,7 +302,7 @@ function VishwasSamvadChat({ auth, onClose, initialMessage = "", initialProduct 
         {messages.map((message) => { const answerAudio = message.sender === "assistant" ? message.metadata_json?.data?.audio_key : null; return <div className={`vishwas-message ${message.sender}`} key={message.id}><span>{message.content}</span>{answerAudio && <audio controls preload="none" src={audioUrl(answerAudio)}>Your browser does not support audio playback.</audio>}</div>; })}
         {busy && <div className="vishwas-message assistant"><LoaderCircle className="spin" size={16} /> Checking the evidence…</div>}
       </div>
-      {!!initialPrompts.length && <div className="vishwas-prompts">{initialPrompts.map((prompt) => <button type="button" key={prompt} onClick={() => setText(prompt)}>{prompt}</button>)}</div>}
+      {!messages.length && !!initialPrompts.length && <div className="vishwas-prompts" aria-label="Suggested questions">{initialPrompts.map((prompt) => <button type="button" key={prompt} onClick={() => setText(prompt)}>{prompt}</button>)}</div>}
       {error && <p className="field-error">{error}</p>}
       <form className="vishwas-samvad-input-area" onSubmit={sendMessage}><input value={text} onChange={(event) => setText(event.target.value)} placeholder="Type your question…" aria-label="Vishwas Saathi message" /><button type="button" className="secondary-cta compact" onClick={recording ? stopVoiceQuestion : startVoiceQuestion} disabled={busy} aria-label={recording ? "Stop recording" : "Record a voice question"}>{recording ? "Stop" : <Mic size={16} />}</button><button className="vishwas-samvad-send-btn" type="submit" disabled={busy || !text.trim()}>Send</button></form>
     </section>
@@ -2054,25 +2054,38 @@ export default function Storefront({ initialProductId = null }) {
 
   function openVishwasSamvad(product = null, options = {}) {
     requireAuth(() => {
-      setVishwasInitialProduct(product || selected || null);
+      const contextProduct = product || selected || null;
+      setVishwasInitialProduct(contextProduct);
       setVishwasInitialMsg(options.message || "");
-      setVishwasInitialPrompts(options.prompts || []);
+      setVishwasInitialPrompts(options.prompts || (contextProduct ? [
+        "Is kapde ka material kaisa hai?",
+        "Is kapde ki return policy kya hai?",
+        "Is kapde ka rang kya hai?",
+      ] : []));
       setVishwasOpen(true);
     });
   }
 
   function handleAuthenticated(session) {
+    const pendingAction = pendingAfterAuth;
     setAuth(session);
     setAuthModalOpen(false);
     setToast(`Welcome, ${session.user.name}`);
+    setPendingAfterAuth(null);
     if (session.user.role === "delivery_boy") {
       router.push("/delivery");
       return;
     }
-    if (pendingAfterAuth) {
-      pendingAfterAuth(session.user.id);
-      setPendingAfterAuth(null);
+    if (session.user.role === "seller") {
+      router.push("/seller");
+      return;
     }
+    if (session.user.role === "admin") {
+      router.push("/admin");
+      return;
+    }
+    router.push("/");
+    if (pendingAction) pendingAction(session.user.id);
   }
 
   function handleLogout() {

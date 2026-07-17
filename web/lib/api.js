@@ -1,19 +1,24 @@
 const API = "/agent-api/v1";
-// Separate storage per side of the app, keyed by which route is currently loaded --
-// the Seller Portal (/seller/*) and the buyer storefront used to share one
-// "kavach.auth.v1" key, so having both open in different tabs of the same browser
-// (a very normal thing to do while testing) meant whichever tab last touched
-// localStorage silently overwrote the other's session. A buyer tab could end up
-// making API calls with a seller's token (or vice versa) with no visible sign
-// anything was wrong until a role-gated endpoint 403'd with a raw "Insufficient
-// role" error. Keying storage by route means each side keeps its own persistent
-// login independent of what's happening in the other tab.
+// Keep each role's portal session independent so accounts can be tested in separate
+// browser tabs without one role silently replacing another role's credentials.
 const BUYER_TOKEN_KEY = "kavach.auth.buyer.v1";
 const SELLER_TOKEN_KEY = "kavach.auth.seller.v1";
+const DELIVERY_TOKEN_KEY = "kavach.auth.delivery.v1";
+const ADMIN_TOKEN_KEY = "kavach.auth.admin.v1";
+
+function tokenKeyForRole(role) {
+  if (role === "seller") return SELLER_TOKEN_KEY;
+  if (role === "delivery_boy") return DELIVERY_TOKEN_KEY;
+  if (role === "admin") return ADMIN_TOKEN_KEY;
+  return BUYER_TOKEN_KEY;
+}
 
 function tokenKey() {
   if (typeof window === "undefined") return BUYER_TOKEN_KEY;
-  return window.location.pathname.startsWith("/seller") ? SELLER_TOKEN_KEY : BUYER_TOKEN_KEY;
+  if (window.location.pathname.startsWith("/seller")) return SELLER_TOKEN_KEY;
+  if (window.location.pathname.startsWith("/delivery")) return DELIVERY_TOKEN_KEY;
+  if (window.location.pathname.startsWith("/admin")) return ADMIN_TOKEN_KEY;
+  return BUYER_TOKEN_KEY;
 }
 
 export function loadAuthSession() {
@@ -28,7 +33,7 @@ export function loadAuthSession() {
 
 export function saveAuthSession(session) {
   if (typeof window === "undefined") return;
-  const key = tokenKey();
+  const key = session?.user?.role ? tokenKeyForRole(session.user.role) : tokenKey();
   if (!session) {
     window.localStorage.removeItem(key);
     return;

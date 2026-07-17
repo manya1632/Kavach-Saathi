@@ -4,7 +4,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, FileImage, LoaderCircle, LogOut, MapPin, RotateCcw, ShieldCheck, Truck, Upload } from "lucide-react";
 
-import { get, loadAuthSession, post } from "@/lib/api";
+import { get, loadAuthSession, logout, post } from "@/lib/api";
 
 const TABS = [
   ["pending-deliveries", "Pending deliveries"],
@@ -123,7 +123,7 @@ export default function DeliveryPortal() {
 
   return (
     <main className="delivery-portal">
-      <header className="delivery-header"><div><Truck /><span><strong>Kavach Saathi Delivery</strong><small>Shared operational queue · signed in as {auth.user.name}</small></span></div><button type="button" onClick={() => { localStorage.removeItem("kavach.auth.v1"); router.push("/"); }}><LogOut size={16} /> Logout</button></header>
+      <header className="delivery-header"><div><Truck /><span><strong>Kavach Saathi Delivery</strong><small>Shared operational queue · signed in as {auth.user.name}</small></span></div><button type="button" onClick={() => { logout(); router.push("/"); }}><LogOut size={16} /> Logout</button></header>
       <nav className="delivery-tabs" aria-label="Delivery queue sections">{TABS.map(([id, label]) => <button type="button" className={activeTab === id ? "active" : ""} onClick={() => setActiveTab(id)} key={id}>{label}</button>)}</nav>
       {error && <p className="delivery-error">{error}</p>}
       {notice && <p className="delivery-notice" role="status">{notice}</p>}

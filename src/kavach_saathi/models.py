@@ -457,11 +457,6 @@ class FitFeedbackRequest(BaseModel):
     feedback: Literal["good", "tight", "loose"]
 
 
-class ConfirmationRequest(BaseModel):
-    decision: Literal["confirmed", "reschedule", "cancel"]
-    scheduled_date: str | None = None
-
-
 class ChatConversationCreate(BaseModel):
     page_route: str | None = None
     page_type: str | None = None

@@ -29,14 +29,16 @@ _AUDIO_CONTENT_TYPES = {
 
 _SYSTEM_PROMPT = (
     "You are Kavach Saathi's universal grounded shopping experience called 'Vishwas Saathi'. Answer only from the "
-    "supplied commerce evidence -- verified product specs, real buyer reviews, active page grounding data (such as orders, returns, or address info), and past "
+    "supplied commerce evidence -- verified product specs, real buyer reviews, active page grounding data "
+    "(such as orders, returns, or address info), and past "
     "resolved Q&A. Never invent discounts, delivery dates, fabric claims, or return "
     "approvals. Refuse to invent delivery dates, refunds, stock, or product claims. "
     "If multiple products are supplied, compare them using only their listed evidence. "
     "Write natural, idiomatic answers in each of English, Hindi, Bengali, Marathi, and Gujarati. "
     "The Hindi answer must use Roman Hindi (Hindi words written only in the Latin/English alphabet), "
     "so a shopper who typed Hindi in English letters can read it naturally. "
-    "-- not a literal word-for-word translation of one into the others. Do NOT call yourself an agent or display an agent number."
+    "-- not a literal word-for-word translation of one into the others. Do NOT call yourself an agent or "
+    "display an agent number."
 )
 
 _LANGUAGE_CODES = ("en", "hi", "bn", "mr", "gu")
@@ -264,7 +266,7 @@ class VoiceQAAgent(Agent):
                 "mr": "पडताळणी केलेल्या यादीची तुलना: " + joined["mr"] + ".",
                 "gu": "ચકાસાયેલ યાદીની સરખામણી: " + joined["gu"] + ".",
             }
-        if any(word in lower for word in ("fabric", "kapda", "material")):
+        if any(word in lower for word in ("fabric", "kapda", "material", "मटेरियल", "कपड़ा", "कपड़े")):
             fabric = specs.get("fabric", "not verified")
             color = specs.get("primary_color") or specs.get("color") or primary.get("color")
             color_text = f" The verified color is {color}." if color else ""
@@ -276,20 +278,23 @@ class VoiceQAAgent(Agent):
                 "mr": f"पडताळणी केलेल्या लेबलनुसार याचे कापड {fabric} आहे.",
                 "gu": f"ચકાસાયેલ લેબલ મુજબ આનું કાપડ {fabric} છે.",
             }
-        if any(word in lower for word in ("return", "wapas", "refund")):
+        if any(word in lower for word in ("return", "wapas", "refund", "रिटर्न", "वापस")):
             days = primary.get("return_window_days", 7)
             return {
                 "en": f"This product has a {days}-day return window. Return evidence is checked fairly.",
-                "hi": f"Is product par {days} din ki return window hai. Return evidence ko fair tareeke se check kiya jaata hai.",
+                "hi": (
+                    f"Is product par {days} din ki return window hai. "
+                    "Return evidence ko fair tareeke se check kiya jaata hai."
+                ),
                 "bn": f"এই পণ্যের {days} দিনের রিটার্ন উইন্ডো আছে। রিটার্ন প্রমাণ ন্যায্যভাবে পরীক্ষা করা হয়।",
                 "mr": f"या उत्पादनासाठी {days} दिवसांची परतावा मुदत आहे. परतावा पुरावा निष्पक्षपणे तपासला जातो.",
                 "gu": f"આ પ્રોડક્ટ માટે {days} દિવસની રિટર્ન વિન્ડો છે. રિટર્ન પુરાવો ન્યાયી રીતે તપાસવામાં આવે છે.",
             }
-        if any(word in lower for word in ("wash", "dhona", "dhoyein", "karein")):
+        if any(word in lower for word in ("wash", "dhona", "dhoyein", "karein", "वॉश", "धो", "धोएं")):
             wash_care = specs.get("wash_care", "not verified")
             return {
                 "en": f"The verified wash-care instruction is: {wash_care}.",
-                "hi": f"Verified wash-care instruction yeh hai: {wash_care}.",
+                "hi": f"Isko dhone ka verified tareeka yeh hai: {wash_care}.",
                 "bn": f"The verified wash-care instruction is: {wash_care}.",
                 "mr": f"The verified wash-care instruction is: {wash_care}.",
                 "gu": f"The verified wash-care instruction is: {wash_care}.",
@@ -328,7 +333,12 @@ class VoiceQAAgent(Agent):
             except (SarvamUnavailable, FileNotFoundError) as exc:
                 raise RuntimeError("Voice transcription could not be completed") from exc
 
-        response_language = detect_chat_language(transcript) if request.language == "auto" else request.language
+        # English/Hindi selection follows the actual transcript, not the browser or
+        # saved profile language. This keeps typed and Sarvam-transcribed questions
+        # consistent while preserving explicit Bengali/Marathi/Gujarati requests.
+        response_language = (
+            request.language if request.language in {"bn", "mr", "gu"} else detect_chat_language(transcript)
+        )
 
         # 1. Resolve active page grounding evidence
         grounding_data = {}
@@ -458,6 +468,18 @@ class VoiceQAAgent(Agent):
                 provider = "deterministic_keyword_fallback"
 
         answer_text = answers.get(response_language, answers["en"])
+        if response_language == "hi" and detect_chat_language(answer_text) != "hi":
+            # Structured providers occasionally place English prose in answer_hi.
+            # Never silently serve that as a Hindi response: use the same grounded
+            # deterministic evidence to produce readable Roman Hindi instead.
+            if products:
+                answer_text = self._deterministic_answer(transcript, products)["hi"]
+            else:
+                answer_text = (
+                    "Mujhe diye gaye verified evidence mein iska sahi jawab nahi mila. "
+                    "Kripya sambandhit product ya order kholkar dobara poochhein."
+                )
+            answers["hi"] = answer_text
         audio_key = None
         if request.synthesize_audio:
             try:

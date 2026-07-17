@@ -39,7 +39,6 @@ from kavach_saathi.models import (
     AuthUser,
     ChatConversationCreate,
     ChatMessageSend,
-    ConfirmationRequest,
     HealthResponse,
     ListingAnalyzeRequest,
     LoginRequest,
@@ -64,6 +63,24 @@ from kavach_saathi.redis_client import get_redis
 from kavach_saathi.repository import DataNotFoundError
 from kavach_saathi.seller_api import router as seller_router
 from kavach_saathi.specs_api import router as specs_router
+
+logger = logging.getLogger(__name__)
+
+
+def resolve_whatsapp_order_id(form_data: dict[str, str], explicit_order_id: str | None, redis) -> str | None:
+    """Resolve a quick reply to the exact outbound message before using the legacy phone fallback."""
+    if explicit_order_id:
+        return explicit_order_id
+    from kavach_saathi.providers.twilio_integration import normalize_phone_number
+
+    replied_to_sid = str(form_data.get("OriginalRepliedMessageSid", "")).strip()
+    pending = redis.get(f"whatsapp:outbound:{replied_to_sid}") if replied_to_sid else None
+    if not pending:
+        sender = str(form_data.get("From", "")).removeprefix("whatsapp:").strip()
+        if not sender:
+            return None
+        pending = redis.get(f"whatsapp:pending:{normalize_phone_number(sender)}")
+    return pending.decode() if isinstance(pending, bytes) else pending
 
 STOREFRONT_CATEGORIES = [
     "Popular",
@@ -96,7 +113,7 @@ def _run_workflow_in_background(coro_factory) -> None:
         try:
             asyncio.run(coro_factory())
         except Exception:
-            # A webhook-triggered background task (e.g. Agent 7's Twilio callbacks)
+            # A webhook-triggered background task (for example, a Twilio callback)
             # has no caller left to see a raised exception -- without this, a failure
             # here is entirely silent (no log line, no agent_logs row), which is
             # exactly the kind of unobservable failure this project's honesty rule
@@ -241,7 +258,7 @@ def create_app() -> FastAPI:
         # button (gap_report B4/Y2's event-driven requirement).
         container = get_container()
         start_review_consumer(container)
-        # Automatically invokes Agent 7's real outbound Twilio call on every
+        # Automatically invokes the real outbound WhatsApp confirmation on every
         # `order.placed` event (gap_report B1).
         start_order_consumer(container)
 
@@ -643,19 +660,14 @@ def create_app() -> FastAPI:
             except Exception:
                 pass
 
-        user_msg = container.repository.add_chat_message(
-            payload.conversation_id,
-            sender="user",
-            content=payload.text,
-            metadata_json={"audio_key": payload.audio_key, "language": payload.language},
-        )
-
         voice_req = VoiceQueryRequest(
             buyer_id=user.id,
             product_id=conversation.get("product_id") or "",
             compare_product_ids=[],
             text=payload.text,
             audio_key=payload.audio_key,
+            synthesize_audio=bool(payload.audio_key),
+            voice_flow="general",
             language=payload.language,
             page_route=conversation.get("page_route"),
             page_type=conversation.get("page_type"),
@@ -672,22 +684,20 @@ def create_app() -> FastAPI:
         response_language = str(res.data.get("language") or "en")
         transcript = str(res.data.get("transcript") or payload.text or "").strip()
 
-        with SessionLocal() as db_session:
-            from kavach_saathi.db.models import ChatMessage
-            db_msg = db_session.get(ChatMessage, user_msg["id"])
-            if db_msg:
-                db_msg.content = transcript
-                db_msg.metadata_json = {
-                    "audio_key": payload.audio_key,
-                    "input_type": "audio" if payload.audio_key else "text",
-                    "language": response_language,
-                }
-                db_session.commit()
-                user_msg["content"] = transcript
-                user_msg["metadata_json"] = db_msg.metadata_json
-
         answer_text = res.user_message.get(response_language, res.user_message["en"])
 
+        # Persist the exchange only after the grounded workflow succeeds. This avoids
+        # leaving empty/partial user messages behind when STT or reasoning fails.
+        user_msg = container.repository.add_chat_message(
+            payload.conversation_id,
+            sender="user",
+            content=transcript,
+            metadata_json={
+                "audio_key": payload.audio_key,
+                "input_type": "audio" if payload.audio_key else "text",
+                "language": response_language,
+            },
+        )
         assistant_msg = container.repository.add_chat_message(
             payload.conversation_id, sender="assistant", content=answer_text, metadata_json=res.model_dump(mode="json")
         )
@@ -701,14 +711,6 @@ def create_app() -> FastAPI:
     @app.post(f"{prefix}/returns/analyze", response_model=RunEnvelope)
     async def analyze_return(payload: ReturnAnalyzeRequest, container: Container = Depends(get_container)):
         return await run(WorkflowType.RETURN, payload, container)
-
-    @app.post(f"{prefix}/orders/{{order_id}}/confirm-simulated")
-    async def confirm_delivery_simulated(
-        order_id: str, payload: ConfirmationRequest, container: Container = Depends(get_container)
-    ):
-        agent = container.service.graphs.confirmation
-        result = await agent.confirm_simulated(order_id, payload.decision, payload.scheduled_date)
-        return {"results": {"delivery_confirmation": result}}
 
     @app.get(f"{prefix}/runs/{{run_id}}", response_model=RunEnvelope)
     async def get_run(run_id: UUID, container: Container = Depends(get_container)):
@@ -794,10 +796,11 @@ def create_app() -> FastAPI:
         _run_workflow_in_background(lambda: agent.handle_call_status(order_id, call_status))
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+    @app.post(f"{prefix}/twilio/whatsapp")
     @app.post(f"{prefix}/twilio/whatsapp/{{order_id}}")
     async def twilio_whatsapp_webhook(
-        order_id: str,
         request: Request,
+        order_id: str | None = None,
         cfg: Settings = Depends(get_settings),
         session: Session = Depends(get_session),
     ):
@@ -823,18 +826,43 @@ def create_app() -> FastAPI:
         action_id = str(form_data.get("ButtonPayload", "")).strip()
         if not provider_sid or not action_id:
             raise HTTPException(status_code=400, detail="A signed quick-reply ID and MessageSid are required")
+        webhook_key = f"twilio:webhook:{provider_sid}"
         try:
-            if not get_redis().set(f"twilio:webhook:{provider_sid}", "processing", nx=True, ex=604800):
+            if not get_redis().set(webhook_key, "processing", nx=True, ex=60):
                 return Response(content='<?xml version="1.0"?><Response/>', media_type="text/xml")
         except Exception:
             pass
+
+        if not order_id:
+            from kavach_saathi.providers.twilio_integration import normalize_phone_number
+
+            sender = str(form_data.get("From", "")).removeprefix("whatsapp:").strip()
+            if not sender:
+                raise HTTPException(status_code=400, detail="The WhatsApp sender is required")
+            try:
+                order_id = resolve_whatsapp_order_id(
+                    {key: str(value) for key, value in form_data.items()},
+                    None,
+                    get_redis(),
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=503, detail="WhatsApp routing is temporarily unavailable") from exc
+            if not order_id:
+                raise HTTPException(status_code=409, detail="No pending WhatsApp order was found for this sender")
 
         order = session.get(Order, order_id)
         if not order:
             raise HTTPException(status_code=404, detail="Order not found")
         provider = TwilioIntegrationClient(cfg)
         phone = (order.address_snapshot or {}).get("phone")
+        if phone:
+            from kavach_saathi.providers.twilio_integration import normalize_phone_number
+
+            sender = str(form_data.get("From", "")).removeprefix("whatsapp:").strip()
+            if not sender or normalize_phone_number(sender) != normalize_phone_number(phone):
+                raise HTTPException(status_code=403, detail="WhatsApp sender does not match this order")
         today = order.created_at.date() if order.created_at else datetime.now(UTC).date()
+        outbound_message: tuple[str, dict[str, str]] | None = None
 
         if action_id == "order_confirm_yes" and order.status == OrderStatus.AWAITING_BUYER_CONFIRMATION:
             order.status = OrderStatus.CONFIRMED
@@ -844,15 +872,14 @@ def create_app() -> FastAPI:
                 order.promised_delivery_date = datetime.combine(today + timedelta(days=offset), datetime.min.time())
             session.add(OrderStatusHistory(order_id=order.id, status=OrderStatus.CONFIRMED, actor="buyer"))
             if phone and cfg.twilio_delivery_date_content_sid:
-                provider.send_whatsapp_content(
-                    phone,
+                outbound_message = (
                     cfg.twilio_delivery_date_content_sid,
                     {"1": order.id, "2": order.promised_delivery_date.date().isoformat()},
                 )
         elif action_id == "order_confirm_no" and order.status == OrderStatus.AWAITING_BUYER_CONFIRMATION:
             order.whatsapp_workflow_state = "awaiting_cancellation_confirmation"
             if phone and cfg.twilio_cancellation_content_sid:
-                provider.send_whatsapp_content(phone, cfg.twilio_cancellation_content_sid, {"1": order.id})
+                outbound_message = (cfg.twilio_cancellation_content_sid, {"1": order.id})
         elif (
             action_id == "delivery_date_yes"
             and order.whatsapp_workflow_state == "awaiting_delivery_date_confirmation"
@@ -867,8 +894,7 @@ def create_app() -> FastAPI:
             order.whatsapp_workflow_state = "awaiting_reschedule_choice"
             if phone and cfg.twilio_reschedule_content_sid:
                 proposed = order.promised_delivery_date.date()
-                provider.send_whatsapp_content(
-                    phone,
+                outbound_message = (
                     cfg.twilio_reschedule_content_sid,
                     {
                         "1": order.id,
@@ -905,7 +931,30 @@ def create_app() -> FastAPI:
         else:
             raise HTTPException(status_code=409, detail="Stale or invalid WhatsApp action")
 
-        session.commit()
+        try:
+            # The buyer's decision is authoritative and must be durable before a
+            # follow-up message is sent. A provider call can no longer roll it back.
+            session.commit()
+            if outbound_message and phone:
+                sid = provider.send_whatsapp_content(phone, outbound_message[0], outbound_message[1])
+                try:
+                    from kavach_saathi.providers.twilio_integration import normalize_phone_number
+
+                    redis = get_redis()
+                    redis.setex(f"whatsapp:outbound:{sid}", 86400, order.id)
+                    redis.setex(f"whatsapp:pending:{normalize_phone_number(phone)}", 86400, order.id)
+                except Exception:
+                    logger.warning("Could not store WhatsApp correlation for order %s", order.id, exc_info=True)
+            try:
+                get_redis().set(webhook_key, "complete", ex=604800)
+            except Exception:
+                pass
+        except Exception:
+            try:
+                get_redis().delete(webhook_key)
+            except Exception:
+                pass
+            raise
         return Response(content='<?xml version="1.0"?><Response/>', media_type="text/xml")
 
     @app.put(f"{prefix}/mock-uploads/{{object_key:path}}", status_code=status.HTTP_204_NO_CONTENT)

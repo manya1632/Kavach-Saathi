@@ -221,7 +221,7 @@ class Order(Base):
     stock_decremented: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     promised_delivery_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rescheduled_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    whatsapp_workflow_state: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    whatsapp_workflow_state: Mapped[str | None] = mapped_column(String(64), nullable=True)
     delivery_boy_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)

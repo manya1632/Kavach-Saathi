@@ -746,6 +746,9 @@ async def list_my_orders(user: Annotated[User, Depends(_require_buyer)], session
                 "original_order_id": order.original_order_id,
                 "created_at": order.created_at,
                 "fit_feedback": order.fit_feedback,
+                "whatsapp_workflow_state": order.whatsapp_workflow_state,
+                "promised_delivery_date": order.promised_delivery_date,
+                "rescheduled_count": order.rescheduled_count,
                 "items": [
                     {
                         "product_id": i.product_id,

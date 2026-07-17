@@ -377,13 +377,58 @@ def test_audio_requests_follow_the_explicit_ui_flow():
 
 
 def test_vishwas_saathi_detects_roman_hindi_and_english():
-    from kavach_saathi.agents.voice import detect_chat_language
+    from kavach_saathi.agents.voice import VoiceQAAgent, detect_chat_language
 
     assert detect_chat_language("Iss kapde ka rang and material kaisa hai?") == "hi"
     assert detect_chat_language("इसको वॉश कैसे करें?") == "hi"
     assert detect_chat_language("Iss kapde ko wash kaise karein?") == "hi"
     assert detect_chat_language("How should I wash this garment?") == "en"
     assert detect_chat_language("What is the color and material of this product?") == "en"
+
+    agent = VoiceQAAgent.__new__(VoiceQAAgent)
+    product = {
+        "id": "P-HINDI",
+        "name": "Cotton Kurta",
+        "price": 499,
+        "specs": {"wash_care": "gentle hand wash"},
+    }
+    answer = agent._deterministic_answer("इसको वॉश कैसे करें?", [product])
+    assert detect_chat_language(answer["hi"]) == "hi"
+    assert "gentle hand wash" in answer["hi"]
+
+
+def test_whatsapp_reply_sid_routes_two_orders_on_the_same_phone():
+    from kavach_saathi.app import resolve_whatsapp_order_id
+    from kavach_saathi.db.models import Order
+
+    redis = MagicMock()
+    values = {
+        "whatsapp:outbound:MM-ORDER-ONE": b"O-ORDER-ONE",
+        "whatsapp:outbound:MM-ORDER-TWO": b"O-ORDER-TWO",
+        "whatsapp:pending:+919748572321": b"O-ORDER-TWO",
+    }
+    redis.get.side_effect = values.get
+
+    first = resolve_whatsapp_order_id(
+        {
+            "OriginalRepliedMessageSid": "MM-ORDER-ONE",
+            "From": "whatsapp:+919748572321",
+        },
+        None,
+        redis,
+    )
+    second = resolve_whatsapp_order_id(
+        {
+            "OriginalRepliedMessageSid": "MM-ORDER-TWO",
+            "From": "whatsapp:+919748572321",
+        },
+        None,
+        redis,
+    )
+
+    assert first == "O-ORDER-ONE"
+    assert second == "O-ORDER-TWO"
+    assert Order.__table__.c.whatsapp_workflow_state.type.length == 64
 
 
 def test_delivery_boy_flow_and_reschedule():

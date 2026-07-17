@@ -101,7 +101,7 @@ async def _trigger_delivery_confirmation_call(container: Container, payload: dic
     from kavach_saathi.config import get_settings
     from kavach_saathi.db.base import SessionLocal
     from kavach_saathi.db.models import Address, Order
-    from kavach_saathi.providers.twilio_integration import TwilioIntegrationClient
+    from kavach_saathi.providers.twilio_integration import TwilioIntegrationClient, normalize_phone_number
 
     with SessionLocal() as session:
         order = session.get(Order, payload["order_id"])
@@ -121,6 +121,7 @@ async def _trigger_delivery_confirmation_call(container: Container, payload: dic
         session.commit()
         try:
             get_redis().setex(f"whatsapp:outbound:{sid}", 86400, order.id)
+            get_redis().setex(f"whatsapp:pending:{normalize_phone_number(phone)}", 86400, order.id)
         except Exception:
             pass
 

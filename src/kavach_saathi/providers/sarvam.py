@@ -17,7 +17,7 @@ _LANGUAGE_CODES = {
 
 _STT_URL = "https://api.sarvam.ai/speech-to-text"
 _TTS_URL = "https://api.sarvam.ai/text-to-speech"
-_TTS_MAX_CHARS = 500
+_TTS_MAX_CHARS = 2500
 
 
 def _truncate_for_tts(text: str, limit: int = _TTS_MAX_CHARS) -> str:
@@ -86,7 +86,7 @@ class SarvamClient:
                     _TTS_URL,
                     headers={**self._headers(), "Content-Type": "application/json"},
                     json={
-                        "inputs": [_truncate_for_tts(text)],
+                        "text": _truncate_for_tts(text),
                         "target_language_code": lang_code,
                         "speaker": "priya",
                         "model": "bulbul:v3",

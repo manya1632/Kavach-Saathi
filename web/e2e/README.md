@@ -29,7 +29,7 @@ Set `E2E_BASE_URL` if the frontend isn't on the default `http://localhost:3000`.
   `tests/test_catalogue_agent_integration.py` (mocked at the heavy-model boundary,
   DB/response contract verified for real) and the manual walkthrough in
   `../../RUNBOOK.md`.
-- Agent 7's real Twilio call and Agent 8's return-video upload aren't driven through
+- The real Twilio WhatsApp confirmation and return-evidence upload aren't driven through
   the browser here — they're covered by `tests/test_delivery_confirmation.py` /
   `tests/test_api_workflows.py::test_return_threshold_paths` and RUNBOOK.md's manual
   walkthrough, since both need real external state (a phone, a video file) a browser

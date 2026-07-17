@@ -540,6 +540,24 @@ class CommerceRepository:
             ).scalars()
             return [_normalized_spec(row) for row in rows]
 
+    def fully_verified_product_ids(self) -> set[str]:
+        """Product IDs where all 4 model-wearing angles are AI-verified -- used to
+        rank complete listings (real generated photos + specs) ahead of ones still
+        showing the seller's own photo pending Agent 1 image generation."""
+        from sqlalchemy import func
+
+        with self._session() as session:
+            rows = session.execute(
+                select(ProductImage.product_id)
+                .where(
+                    ProductImage.angle.in_(("front", "back", "left", "right")),
+                    ProductImage.is_verified.is_(True),
+                )
+                .group_by(ProductImage.product_id)
+                .having(func.count() >= 4)
+            ).scalars()
+            return set(rows)
+
     def product_images(self, product_id: str) -> list[dict[str, Any]]:
         with self._session() as session:
             product = session.get(Product, product_id)
@@ -633,6 +651,7 @@ class CommerceRepository:
         recording which provider (Nano Banana 2 vs Stable Diffusion fallback) served
         each angle."""
         with self._session() as session:
+            front_key: str | None = None
             for image in images:
                 image_id = f"{product_id}-{image['view']}"
                 existing = session.get(ProductImage, image_id)
@@ -652,6 +671,19 @@ class CommerceRepository:
                             provider=image["provider"],
                         )
                     )
+                if image["view"] == "front":
+                    front_key = image["key"]
+            if front_key:
+                # `media_primary` is the single image used anywhere a full 4-shot
+                # gallery isn't rendered (storefront grid cards, cart lines, seller
+                # inventory thumbnails) -- it was set once at /initialize to the
+                # seller's raw uploaded photo and never touched again, so those
+                # surfaces kept showing the flat product photo forever, even after
+                # Agent 1 generated real model-wearing views for the actual product
+                # detail page's gallery.
+                product = session.get(Product, product_id)
+                if product:
+                    product.media_primary = front_key
             session.commit()
 
     def set_stolen_photo_flag(self, product_id: str, flagged: bool) -> None:

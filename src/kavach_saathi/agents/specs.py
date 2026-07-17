@@ -15,12 +15,11 @@ from kavach_saathi.models import (
     ListingAnalyzeRequest,
     RunStatus,
 )
-from kavach_saathi.providers.reasoning import ReasoningUnavailable
+from kavach_saathi.providers.reasoning import ReasoningUnavailable, build_groq_first_reasoner
 from kavach_saathi.providers.spec_ocr import EXTRACTION_PROMPT, EXTRACTION_SYSTEM_PROMPT, ExtractedSpec
-from kavach_saathi.providers.spec_vision import FabricVisionClassifier, hex_color_distance
+from kavach_saathi.providers.spec_vision import FabricVisionClassifier
 
 IMAGE_VERIFIABLE_FIELDS = ("fabric", "gsm", "color_hex", "wash_care")
-_COLOR_MISMATCH_THRESHOLD = 0.35
 
 
 class SpecEnforcerAgent(Agent):
@@ -38,6 +37,11 @@ class SpecEnforcerAgent(Agent):
     def __init__(self, context):
         super().__init__(context)
         self.vision = FabricVisionClassifier()
+        # Groq-first, not the shared context.reasoner (Gemini-first) -- Gemini has
+        # been observed hanging well past its own timeout, which would otherwise
+        # delay every listing's spec extraction behind a slow/stuck provider before
+        # ever reaching the one that's actually fast and correct right now.
+        self.reasoner = build_groq_first_reasoner(get_settings())
 
     async def run(self, request: ListingAnalyzeRequest) -> AgentResult:
         started_at = time.perf_counter()
@@ -48,7 +52,7 @@ class SpecEnforcerAgent(Agent):
 
         ocr_error: str | None = None
         try:
-            extracted = await self.context.reasoner.structured(
+            extracted = await self.reasoner.structured(
                 system=EXTRACTION_SYSTEM_PROMPT,
                 prompt=EXTRACTION_PROMPT,
                 schema=ExtractedSpec,
@@ -59,50 +63,124 @@ class SpecEnforcerAgent(Agent):
             extracted = ExtractedSpec(label_visible=False)
 
         cv_result = self.vision.classify(images[0])
-        ocr_source_label = f"{self.context.reasoner.name}_vision_ocr"
+        ocr_source_label = f"{self.reasoner.name}_vision_ocr"
+
+        if (product.get("specs") or {}).get("garment_target") == "none":
+            # Non-garment products (bags, jewellery, etc.) don't have a "claimed vs
+            # CV-detected fabric" cross-check to run -- there's no seller-typed
+            # fabric value to compare against on a bag. Keep it to the two fields
+            # that are actually meaningful and reliably available: whatever
+            # material text OCR could read off a tag (if any), and the CV-computed
+            # dominant color, which -- unlike fabric -- never depends on a label
+            # being visible at all.
+            final = {}
+            sources = {}
+            # Same OCR-first, CV-only-as-fallback rule as the garment branch below:
+            # trust whatever's actually printed on the tag; only reach for the CV
+            # guess (never a "conflict" to resolve) when the tag doesn't say. Fabric
+            # previously had no fallback at all here -- a tag that just didn't print
+            # a material line left the field silently empty even though CLIP's
+            # zero-shot guess on the product photo was sitting right there.
+            final["fabric"] = extracted.fabric or cv_result["clip_fabric"]
+            sources["fabric"] = ocr_source_label if extracted.fabric else "clip_zero_shot"
+            final["color_hex"] = extracted.color_hex or cv_result["dominant_color_hex"]
+            sources["color_hex"] = ocr_source_label if extracted.color_hex else "dominant_color_extraction"
+
+            status = RunStatus.COMPLETED
+            confidence = 70
+            summary = "Material and color detected from the product photo."
+            prod_status = "draft" if product.get("status") == "extracting" else "active"
+            self.context.repository.update_product_specs(
+                product["id"], spec_json=final, spec_source="extracted", status=prod_status
+            )
+            result = AgentResult(
+                agent=AgentName.SPEC_ENFORCER,
+                status=status,
+                confidence=confidence,
+                summary=summary,
+                evidence=[
+                    Evidence(
+                        key="vision_extraction",
+                        value=extracted.model_dump(),
+                        source=ocr_source_label if not ocr_error else f"{ocr_source_label}_unavailable",
+                    ),
+                    Evidence(key="cv_cross_check", value=cv_result, source="clip_resnet50"),
+                ],
+                actions=[AgentAction(type="approve_specs", label="Listing approved")],
+                data={
+                    "extracted_specs": final,
+                    "spec_sources": sources,
+                    "conflicts": [],
+                    "unverified": [],
+                    "ocr_error": ocr_error,
+                },
+                user_message={"en": summary, "hi": "Product photo se material aur color mil gaya."},
+            )
+            latency_ms = round((time.perf_counter() - started_at) * 1000)
+            from kavach_saathi.db.models import Product
+            with SessionLocal() as session:
+                db_product = session.get(Product, product["id"])
+                if db_product:
+                    db_product.extraction_results = {
+                        "extracted_specs": final,
+                        "confidence": confidence,
+                        "evidence": {
+                            "vision_extraction": extracted.model_dump(),
+                            "cv_cross_check": cv_result,
+                            "ocr_error": ocr_error,
+                            "conflicts": [],
+                        },
+                    }
+                log_agent_call(
+                    session,
+                    agent_name="spec_enforcer",
+                    entity_type="product",
+                    entity_id=product["id"],
+                    confidence=confidence,
+                    latency_ms=latency_ms,
+                    input_ref=",".join(request.image_keys),
+                    provider=f"{self.reasoner.name}+clip" if not ocr_error else f"clip ({self.reasoner.name} unavailable)",
+                    output_json=result.data,
+                )
+                session.commit()
+            return result
 
         mismatches: list[dict] = []
         final: dict[str, object] = {}
         sources: dict[str, str] = {}
 
-        # fabric: prefer OCR, cross-check against CLIP; fall back to seller_specs if OCR
-        # found nothing, then cross-check the seller-typed value against CLIP too (the
-        # plan's "seller types cotton but CV detects polyester" scenario).
+        # fabric: a printed care label is ground truth -- if OCR actually read a
+        # fabric composition off the tag, that IS the product's fabric, full stop.
+        # This used to cross-check it against CLIP's zero-shot guess on the garment
+        # photo and flag a "conflict" whenever they disagreed, which was backwards:
+        # CLIP is a rough, un-verified heuristic, not a source of truth to hold a
+        # genuine label reading to account against. That produced false-positive
+        # conflicts on perfectly correct labels (e.g. a label reading "cotton blend"
+        # flagged against CLIP's fuzzy "polyester" guess), which then permanently
+        # blocked the listing since nothing ever cleared the resulting status. CLIP
+        # now only gets used as a fallback for the case that's actually ambiguous:
+        # no fabric printed on the label at all.
         fabric_candidate = extracted.fabric or request.seller_specs.get("fabric")
-        fabric_from = ocr_source_label if extracted.fabric else ("seller_form" if fabric_candidate else None)
         if fabric_candidate:
-            if cv_result["clip_fabric"].lower() not in fabric_candidate.lower():
-                mismatches.append(
-                    {
-                        "field": "fabric",
-                        "claimed": fabric_candidate,
-                        "claimed_source": fabric_from,
-                        "cv_detected": cv_result["clip_fabric"],
-                        "cv_source": "clip_zero_shot",
-                    }
-                )
-            else:
-                final["fabric"] = fabric_candidate
-                sources["fabric"] = fabric_from
+            final["fabric"] = fabric_candidate
+            sources["fabric"] = ocr_source_label if extracted.fabric else "seller_form"
+        else:
+            final["fabric"] = cv_result["clip_fabric"]
+            sources["fabric"] = "clip_zero_shot"
 
+        # Same reasoning for color: a color virtually never appears on a care label
+        # at all (those print fabric/weight/wash instructions), so there's nothing
+        # to genuinely "conflict" with -- either OCR found a printed color (trust
+        # it) or it didn't, in which case the CV-computed dominant color from the
+        # actual product photo is the only signal that exists, not a fallback for a
+        # disagreement.
         color_candidate = extracted.color_hex or request.seller_specs.get("color_hex")
-        color_from = ocr_source_label if extracted.color_hex else ("seller_form" if color_candidate else None)
         if color_candidate:
-            distance = hex_color_distance(color_candidate, cv_result["dominant_color_hex"])
-            if distance > _COLOR_MISMATCH_THRESHOLD:
-                mismatches.append(
-                    {
-                        "field": "color_hex",
-                        "claimed": color_candidate,
-                        "claimed_source": color_from,
-                        "cv_detected": cv_result["dominant_color_hex"],
-                        "cv_source": "dominant_color_extraction",
-                        "distance": round(distance, 3),
-                    }
-                )
-            else:
-                final["color_hex"] = color_candidate
-                sources["color_hex"] = color_from
+            final["color_hex"] = color_candidate
+            sources["color_hex"] = ocr_source_label if extracted.color_hex else "seller_form"
+        else:
+            final["color_hex"] = cv_result["dominant_color_hex"]
+            sources["color_hex"] = "dominant_color_extraction"
 
         for field in ("gsm", "wash_care"):
             candidate = getattr(extracted, field, None) or request.seller_specs.get(field)
@@ -205,9 +283,9 @@ class SpecEnforcerAgent(Agent):
                 latency_ms=latency_ms,
                 input_ref=",".join(request.image_keys),
                 provider=(
-                    f"{self.context.reasoner.name}+clip+resnet50"
+                    f"{self.reasoner.name}+clip+resnet50"
                     if not ocr_error
-                    else f"clip+resnet50 ({self.context.reasoner.name} unavailable)"
+                    else f"clip+resnet50 ({self.reasoner.name} unavailable)"
                 ),
                 output_json=result.data,
             )

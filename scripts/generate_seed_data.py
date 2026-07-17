@@ -610,21 +610,29 @@ _IRRELEVANT_REASONS = [
 
 
 def make_reviews(products: list[dict]) -> list[dict]:
-    """Random-but-deterministic review count per product (5-30) so bestsellers look
+    """Random-but-deterministic review count per product (5-10) so bestsellers look
     busy and niche items look thin, like a real marketplace -- rather than every
     product having an identical, obviously-synthetic review count. ~28% of reviews
     carry a photo, and roughly one in eight of those is deliberately a mismatched
     photo (copied from an unrelated product), giving Agent 4's real CLIP+BERT pass
     (see classify_seeded_reviews.py) genuine mismatches to catch instead of every
-    photo trivially matching. The 5-30 range (not wider) is deliberate: every photo
-    review costs one real CLIP inference during seeding, so the total stays in the
-    thousands rather than tens of thousands to keep that pass a few minutes, not hours.
+    photo trivially matching.
+
+    The count is capped at 10 (not the wider range this used to have) because there
+    are only 10 seeded buyers total and a `(buyer_id, product_id)` unique constraint
+    on the reviews table (one review per buyer per product, same as a real
+    marketplace) -- picking a buyer independently per review, rather than sampling
+    without replacement from the 10 available, let the same buyer get assigned to the
+    same product more than once whenever a product's review count exceeded 10,
+    violating that constraint on every single fresh seed (deterministically, not a
+    flaky occasional collision, since this is seeded with a fixed RNG).
     """
     rng = random.Random(SEED)
     records: list[dict] = []
     for product in products:
-        review_count = rng.randint(5, 30)
-        for _ in range(review_count):
+        review_count = rng.randint(5, 10)
+        buyer_ids = rng.sample(range(1, 11), review_count)
+        for buyer_index in buyer_ids:
             index = len(records) + 1
             rating = rng.choice(_RATING_POOL)
             text = rng.choice(_REVIEW_TEMPLATES[rating]).format(
@@ -636,7 +644,7 @@ def make_reviews(products: list[dict]) -> list[dict]:
             records.append(
                 {
                     "id": f"RV-{index:05d}",
-                    "buyer_id": f"B-{rng.randint(1, 10):03d}",
+                    "buyer_id": f"B-{buyer_index:03d}",
                     "product_id": product["id"],
                     "rating": rating,
                     "text": text,

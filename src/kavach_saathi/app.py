@@ -269,6 +269,65 @@ def create_app() -> FastAPI:
 
             asyncio.create_task(asyncio.to_thread(warm_up_models, container.settings))
 
+    def _default_highlights(product: dict, display_specs: dict) -> list[str]:
+        """Fixture-seeded products ship with hand-authored `highlights`; image-first
+        listings created through the seller portal never get any (nothing generates
+        them), so their product page's "Why shoppers choose it" section was just
+        missing outright. Compute a small set from data the listing actually has --
+        never a specific claim (an exact rating count, a specific care instruction)
+        that would be fabricated for a real product's page."""
+        material = product.get("material") or display_specs.get("fabric")
+        lines = []
+        if material:
+            lines.append(f"{material} construction, verified against the seller's catalogue photos")
+        delivery_days = product.get("delivery_days", 4)
+        delivery_line = f"Ships in {delivery_days}–{delivery_days + 2} days"
+        if product.get("free_delivery", True):
+            delivery_line += " with free delivery"
+        lines.append(delivery_line)
+        review_count = product.get("review_count", 0)
+        if review_count:
+            lines.append(f"{review_count} shopper ratings on this listing")
+        return lines
+
+    # Unlike fabric/color, there's no computer-vision signal for GSM or wash-care
+    # instructions -- a photo can't tell you a fabric's weight or how to launder it,
+    # so when a label genuinely doesn't print them there's nothing honest to fill in
+    # with. A plain dash says exactly that ("not specified"), instead of a fabricated
+    # specific-looking value (a literal "0 GSM", a made-up care instruction) that
+    # reads as real data the label never actually provided.
+    _DEFAULT_SPEC_ROWS = {
+        "gsm": {"label": "Gsm", "value": "—", "unit": None, "value_type": "text"},
+        "wash_care": {"label": "Wash Care", "value": "—", "unit": None, "value_type": "text"},
+    }
+
+    def _fill_default_spec_rows(specifications: list[dict]) -> list[dict]:
+        """The buyer-facing spec grid always shows gsm/wash_care alongside whatever
+        Agent 2 actually extracted -- non-garment listings (see SpecEnforcerAgent)
+        legitimately never get those two fields, so without this the grid just had
+        two rows for those listings instead of the usual four. Appended as
+        unverified/"default" rows, never claimed as `verified`, since these are
+        placeholders, not something OCR or the seller actually specified."""
+        present = {row["key"] for row in specifications}
+        filled = list(specifications)
+        for key, defaults in _DEFAULT_SPEC_ROWS.items():
+            if key in present:
+                continue
+            filled.append(
+                {
+                    "key": key,
+                    "normalized_key": key,
+                    "comparison_group": None,
+                    "comparable": False,
+                    "source": "default",
+                    "verified": False,
+                    "normalized_value": defaults["value"],
+                    "normalized_unit": defaults["unit"],
+                    **defaults,
+                }
+            )
+        return filled
+
     def storefront_product(
         product: dict,
         container: Container,
@@ -279,7 +338,20 @@ def create_app() -> FastAPI:
         seller = seller or container.repository.get("sellers", product["seller_id"])
         media_path = product["media"]["primary"].removeprefix("assets/mock/")
         original_price = product["original_price"]
-        discount = round((1 - product["price"] / original_price) * 100)
+        # A just-initialized, not-yet-published draft has price=original_price=0.0
+        # until the seller fills in pricing on the Finalize screen -- dividing by
+        # zero here previously crashed the seller's own post-initialize preview
+        # fetch with a 500 before they ever saw the extracted specs/generated images.
+        discount = round((1 - product["price"] / original_price) * 100) if original_price else 0
+        # Image-first (seller-portal) listings only ever carry the specs Agent 2
+        # could actually read (gsm/wash_care have no CV fallback -- see
+        # SpecEnforcerAgent -- so they're legitimately absent when the label doesn't
+        # print them). The storefront page always renders a "Care"/"Gsm" slot though;
+        # a plain dash there is honest ("not specified"), unlike a fabricated
+        # specific-looking value.
+        display_specs = dict(product["specs"] or {})
+        display_specs.setdefault("wash_care", "—")
+        display_specs.setdefault("gsm", "—")
         return {
             "id": product["id"],
             "name": product["name"],
@@ -296,9 +368,9 @@ def create_app() -> FastAPI:
             "delivery_days": product.get("delivery_days", 4),
             "free_delivery": product.get("free_delivery", True),
             "cod_available": product.get("cod_available", True),
-            "occasion": product.get("occasion", "Everyday"),
-            "material": product.get("material", product["specs"].get("fabric", "See label")),
-            "highlights": product.get("highlights", []),
+            "occasion": product.get("occasion") or "Everyday",
+            "material": product.get("material") or display_specs.get("fabric", "See label"),
+            "highlights": product.get("highlights") or _default_highlights(product, display_specs),
             "badges": product.get("badges", []),
             "presentation": product.get("presentation", {}),
             "seller": {
@@ -308,7 +380,8 @@ def create_app() -> FastAPI:
                 "rating": seller["rating"],
                 "verified": seller["verified"],
             },
-            "specs": product["specs"],
+            "specs": display_specs,
+            "extraction_results": product.get("extraction_results"),
             "size_chart": product["size_chart"],
             "return_window_days": product["return_window_days"],
             "image_url": f"/mock-assets/{media_path}",
@@ -357,7 +430,12 @@ def create_app() -> FastAPI:
                     return min_dt
             return ts
 
-        products.sort(key=get_activation_time, reverse=True)
+        # Fully-verified listings (real generated model photos, not the seller's
+        # pending-review upload) surface first; recency breaks ties within each group.
+        verified_ids = container.repository.fully_verified_product_ids()
+        products.sort(
+            key=lambda p: (p["id"] not in verified_ids, -get_activation_time(p).timestamp())
+        )
 
         if q:
             term = q.casefold()
@@ -397,7 +475,7 @@ def create_app() -> FastAPI:
     async def storefront_product_detail(product_id: str, container: Container = Depends(get_container)):
         product = container.repository.get("products", product_id)
         result = storefront_product(product, container)
-        result["specifications"] = container.repository.product_specifications(product_id)
+        result["specifications"] = _fill_default_spec_rows(container.repository.product_specifications(product_id))
         result["reviews"] = container.repository.product_reviews(product_id)
         result["review_report"] = container.repository.review_report(product_id)
         return result

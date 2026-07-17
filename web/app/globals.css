@@ -489,6 +489,11 @@ img { max-width: 100%; }
 .inventory-row, .order-row { padding: 16px; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 12px; }
 .inventory-row p, .order-row p { margin: 6px 0 0; color: var(--muted); font-size: 10px; }
 .status-pill { display: inline-block; margin-left: 8px; padding: 3px 8px; border-radius: 99px; background: var(--pink); color: var(--plum); font-size: 8px; font-weight: 800; text-transform: uppercase; }
+.status-pill.delivered { background: var(--green-soft); color: var(--green); }
+.status-pill.cancelled, .status-pill.rto, .status-pill.rto_initiated { background: #fef2f2; color: #9a1c1c; }
+.status-pill.returned, .status-pill.return_initiated, .status-pill.return_approved { background: var(--amber-soft); color: var(--amber); }
+.status-pill.exchanged, .status-pill.exchange_initiated { background: #e8eefc; color: #2c4ea3; }
+.status-pill.placed, .status-pill.confirmed, .status-pill.packed, .status-pill.shipped, .status-pill.out_for_delivery { background: var(--amber-soft); color: var(--amber); }
 .warn-note { color: #9a1c1c; font-weight: 700; }
 .variant-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .variant-chip { padding: 4px 8px; border-radius: 6px; background: var(--soft); font-size: 9px; font-weight: 700; color: var(--ink); }
@@ -544,6 +549,23 @@ img { max-width: 100%; }
 .dynamic-size-row { display: grid; grid-template-columns: .7fr 2fr .7fr auto; gap: 6px; }
 .dynamic-spec-row input, .dynamic-spec-row select, .dynamic-size-row input { min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 7px; font-size: 9px; }
 .dynamic-spec-row button, .dynamic-size-row button { border: 0; color: #9a1c1c; background: transparent; font-size: 8px; cursor: pointer; }
+.readonly-spec-row { display: grid; grid-template-columns: 1fr 1.4fr; align-items: center; gap: 10px; }
+.readonly-spec-label { color: var(--muted); font-size: 9px; font-weight: 800; text-transform: capitalize; }
+.readonly-spec-row input { min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 7px; font-size: 9px; background: var(--soft); color: var(--ink); }
+.inventory-row-main { display: flex; gap: 14px; }
+.inventory-thumb { width: 64px; height: 78px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); flex-shrink: 0; }
+.inventory-actions { display: flex; gap: 8px; margin-top: 12px; }
+.inventory-actions button { display: flex; align-items: center; gap: 5px; padding: 7px 12px; border-radius: 7px; font-size: 9px; font-weight: 800; cursor: pointer; }
+.inventory-actions .secondary-cta { border: 1px solid #f3b4b4; color: #9a1c1c; background: #fef2f2; }
+.inventory-actions .primary-cta { border: 0; color: white; background: var(--plum); }
+.confirm-modal-backdrop { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgb(30 12 22 / 55%); }
+.confirm-modal { width: 100%; max-width: 380px; padding: 22px; border-radius: 14px; background: white; box-shadow: var(--shadow); }
+.confirm-modal h4 { margin: 0 0 8px; color: var(--plum); font-size: 15px; font-weight: 900; }
+.confirm-modal p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.confirm-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.confirm-modal-actions button { display: flex; align-items: center; gap: 6px; padding: 9px 16px; border-radius: 8px; font-size: 10px; font-weight: 800; cursor: pointer; }
+.confirm-modal-actions .secondary-cta { border: 1px solid var(--line); color: var(--ink); background: white; }
+.confirm-modal-actions .primary-cta { border: 1px solid #f3b4b4; color: #9a1c1c; background: #fef2f2; }
 .seller-auth-page { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; background: var(--soft); }
 .portal-public-header, .portal-public-footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px max(24px, calc((100vw - 1180px) / 2)); border-bottom: 1px solid var(--line); background: white; }
 .portal-public-header nav, .portal-public-footer { font-size: 10px; }

@@ -1,0 +1,137 @@
+from __future__ import annotations
+
+import os
+import time
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from fastapi.testclient import TestClient
+
+os.environ["REASONING_MODE"] = "demo"
+# Tests must be deterministic regardless of ambient credentials. pydantic-settings reads
+# .env directly (in addition to the OS environment), so a real key sitting in the repo's
+# .env file -- which is exactly what a developer's local .env is expected to contain
+# once they've added their own keys -- would otherwise silently switch the container's
+# reasoner/vector-index from Demo/unconfigured to the real provider mid-suite. Setting
+# these to an explicit empty string (not just removing the OS var) overrides the .env
+# file's value, since pydantic-settings prioritizes the environment over the file.
+for _key in (
+    "GEMINI_API_KEY",
+    "GROQ_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "PINECONE_API_KEY",
+    "TWILIO_ACCOUNT_SID",
+    "BHASHINI_API_KEY",
+    "RAZORPAY_KEY_ID",
+    "RAZORPAY_KEY_SECRET",
+    "SARVAM_API_KEY",
+    "PUBLIC_BASE_URL",
+    "GOOGLE_MAPS_API_KEY",
+    # Added after Agent 1's provider cascade grew a FASHN/Hugging Face tier -- without
+    # these, a real FASHN_API_KEY/HUGGINGFACE_API_KEY sitting in a developer's .env
+    # (exactly what's expected once real keys are added) made
+    # test_catalogue_generation.py's "uses nano banana"/"falls back to Stable
+    # Diffusion" tests silently attempt real FASHN network calls instead of testing
+    # the mocked Nano Banana/Stable Diffusion path they were named for.
+    "FASHN_API_KEY",
+    "HUGGINGFACE_API_KEY",
+):
+    os.environ[_key] = ""
+
+from kavach_saathi.app import app  # noqa: E402
+
+
+@pytest.fixture(scope="session")
+def client():
+    # Must be a context manager, not a bare TestClient(app): Starlette only runs
+    # lifespan/startup events (which start events.py's review-submitted consumer
+    # thread) inside the `with` block, matching how uvicorn actually runs the app.
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+def poll_run(client: TestClient, run_id: str, *, timeout: float = 10.0) -> dict:
+    """Async workflows (listing/review/return) now execute as a real background task
+    (app.py's `run()` helper) instead of blocking the request, since Agents 1/2/4/8
+    call real models that can take real minutes. Tests poll the same way the frontend
+    does (GET /v1/runs/{run_id}) instead of asserting an immediate synchronous result.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        body = client.get(f"/v1/runs/{run_id}").json()
+        if body["status"] not in ("queued", "running"):
+            return body
+        time.sleep(0.05)
+    raise TimeoutError(f"Run {run_id} did not finish within {timeout}s")
+
+
+def poll_agent_log(agent_name: str, entity_id: str, *, timeout: float = 10.0):
+    """Polls the real `agent_logs` table for a row written by a background event
+    consumer (see events.py's review-submitted consumer thread) -- the pytest
+    equivalent of poll_run for work that isn't tracked as a `RunRecord` at all.
+    """
+    from sqlalchemy import select
+
+    from kavach_saathi.db.base import SessionLocal
+    from kavach_saathi.db.models import AgentLog
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with SessionLocal() as session:
+            log = session.execute(
+                select(AgentLog)
+                .where(AgentLog.agent_name == agent_name, AgentLog.entity_id == entity_id)
+                .order_by(AgentLog.id.desc())
+            ).scalars().first()
+            if log:
+                return log
+        time.sleep(0.1)
+    raise TimeoutError(f"No agent_logs row for {agent_name}:{entity_id} within {timeout}s")
+
+
+MOCK_CATALOGUE_VIEWS = [
+    {
+        "view": view,
+        "key": f"generated/catalog/mock-{view}.png",
+        "provider": "stable_diffusion_controlnet",
+        "nano_banana_quota_count": None,
+        "nano_banana_daily_quota": 15,
+    }
+    for view in ("front", "back", "left", "right")
+]
+
+
+@pytest.fixture
+def mock_catalogue_generation():
+    """Agent 1's real image pipeline (SAM 2.0 + Nano Banana 2 / Stable Diffusion) takes
+    15-70+ CPU-minutes per call -- routine tests that don't specifically exercise that
+    pipeline should request this fixture rather than hit it for real. Pipeline
+    correctness is covered separately by test_catalogue_generation.py (mocked
+    orchestration logic), test_catalogue_agent_integration.py (DB write path), and a
+    real end-to-end run documented in RUNBOOK.md.
+    """
+    target = "kavach_saathi.providers.media.CatalogueImageGenerator.generate"
+    with patch(target, new=AsyncMock(return_value=MOCK_CATALOGUE_VIEWS)):
+        yield MOCK_CATALOGUE_VIEWS
+
+
+MOCK_CV_RESULT = {
+    "clip_fabric": "cotton",
+    "clip_confidence": 0.9,
+    "resnet_top_labels": [{"label": "jean", "confidence": 0.5}],
+    "resnet_fabric_hint": None,
+    "dominant_color_hex": "#800000",
+}
+
+
+@pytest.fixture
+def mock_spec_vision():
+    """Agent 2's CLIP + ResNet-50 + SAM 2.0-backed color extraction takes ~30-60s of
+    real CPU inference per call. Routine tests that don't specifically exercise that
+    pipeline should request this fixture. Correctness is covered separately by
+    test_spec_enforcer.py (mocked orchestration logic) and a real, visually-verified
+    run documented in RUNBOOK.md.
+    """
+    target = "kavach_saathi.providers.spec_vision.FabricVisionClassifier.classify"
+    with patch(target, return_value=MOCK_CV_RESULT):
+        yield MOCK_CV_RESULT

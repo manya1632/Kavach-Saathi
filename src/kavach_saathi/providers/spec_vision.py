@@ -93,6 +93,29 @@ class FabricVisionClassifier:
             for prob, index in zip(top_probs, top_indices, strict=True)
         ]
 
+    @staticmethod
+    def _is_background_pixel(pixel: tuple[int, int, int]) -> bool:
+        # Near-white/near-gray, low-saturation pixels -- the studio backdrop every
+        # seller photo is shot against -- are never the product's own color, so
+        # excluding them keeps the bucket vote from being won by background bleed
+        # (or, if SAM's center-point prompt missed the product entirely -- see
+        # below -- by the background outright).
+        import colorsys
+
+        h, s, v = colorsys.rgb_to_hsv(pixel[0] / 255, pixel[1] / 255, pixel[2] / 255)
+        return s < 0.12 and v > 0.78
+
+    def _bucket_dominant(self, pixels: list[tuple[int, int, int]]) -> str:
+        buckets: dict[tuple[int, int, int], list[tuple[int, int, int]]] = {}
+        for pixel in pixels:
+            key = (pixel[0] // 16, pixel[1] // 16, pixel[2] // 16)
+            buckets.setdefault(key, []).append(pixel)
+        largest = max(buckets.values(), key=len)
+        r = sum(p[0] for p in largest) // len(largest)
+        g = sum(p[1] for p in largest) // len(largest)
+        b = sum(p[2] for p in largest) // len(largest)
+        return f"#{r:02X}{g:02X}{b:02X}"
+
     def _dominant_color_hex(self, image_bytes: bytes) -> str:
         # Reuse Agent 1's SAM 2.0 segmenter to isolate the garment before sampling
         # color -- a whole-frame average is dominated by background/card chrome, so
@@ -103,21 +126,30 @@ class FabricVisionClassifier:
 
         rgba = Image.open(io.BytesIO(segmented_png)).convert("RGBA")
         small = rgba.resize((48, 48))
-        pixels = [p for p in small.getdata() if p[3] > 128]  # opaque (garment) pixels only
-        if not pixels:
-            pixels = list(small.getdata())
-        # Bucket into 4-bit-per-channel cells and take the most frequent cell's mean
-        # color. Real pixel-level CV, not a model call, but genuinely computed from the
-        # segmented garment rather than guessed.
-        buckets: dict[tuple[int, int, int], list[tuple[int, int, int]]] = {}
-        for pixel in pixels:
-            key = (pixel[0] // 16, pixel[1] // 16, pixel[2] // 16)
-            buckets.setdefault(key, []).append(pixel[:3])
-        largest = max(buckets.values(), key=len)
-        r = sum(p[0] for p in largest) // len(largest)
-        g = sum(p[1] for p in largest) // len(largest)
-        b = sum(p[2] for p in largest) // len(largest)
-        return f"#{r:02X}{g:02X}{b:02X}"
+        segmented_pixels = [p[:3] for p in small.getdata() if p[3] > 128]  # opaque (product) pixels only
+
+        # SAM's center-point prompt is a deterministic heuristic, not a guarantee --
+        # on multi-crop/dimension-diagram photos (two product shots plus measurement
+        # callouts on a shared white canvas, a common marketplace listing style) the
+        # image center can land in the empty space between crops, and SAM happily
+        # segments *that* as "the object". A segmented region that's almost entirely
+        # background-colored is a strong signal of exactly that failure, so fall back
+        # to searching the whole original frame instead of trusting a mis-segmented
+        # mask.
+        foreground = [p for p in segmented_pixels if not self._is_background_pixel(p)]
+        if len(foreground) >= max(15, len(segmented_pixels) * 0.15):
+            return self._bucket_dominant(foreground)
+
+        full_pixels = [p[:3] for p in Image.open(io.BytesIO(image_bytes)).convert("RGB").resize((96, 96)).getdata()]
+        full_foreground = [p for p in full_pixels if not self._is_background_pixel(p)]
+        if full_foreground:
+            return self._bucket_dominant(full_foreground)
+
+        # Genuinely white/near-white product (or a background-filter false positive on
+        # a very pale garment) -- fall back to whatever pixels are actually available
+        # rather than raising.
+        fallback_pixels = segmented_pixels or full_pixels
+        return self._bucket_dominant(fallback_pixels)
 
     def classify(self, image_bytes: bytes) -> dict:
         from PIL import Image

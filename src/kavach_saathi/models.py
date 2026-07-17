@@ -179,6 +179,9 @@ class SellerProductCreate(BaseModel):
 class SellerProductInitialize(BaseModel):
     product_image_keys: list[str] = Field(..., min_length=2, max_length=4)
     catalogue_image_keys: list[str] = Field(..., min_length=1, max_length=2)
+    # Who Agent 1's generated "model wearing it" views should show, or "none" if
+    # this product isn't a wearable garment at all (bags, footwear, jewellery, etc.).
+    garment_target: Literal["woman", "man", "girl", "boy", "none"] = "woman"
 
 
 class SellerProductPublish(BaseModel):

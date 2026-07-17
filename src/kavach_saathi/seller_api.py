@@ -15,6 +15,7 @@ from kavach_saathi.auth import require_role
 from kavach_saathi.config import Settings, get_settings
 from kavach_saathi.db.base import get_session
 from kavach_saathi.db.models import (
+    CartItem,
     Order,
     OrderItem,
     OrderStatusHistory,
@@ -42,6 +43,17 @@ from kavach_saathi.redis_client import get_redis
 
 router = APIRouter()
 _require_seller = require_role("seller")
+
+
+def _media_url(key: str | None) -> str | None:
+    """Resolve a stored object key (mock-fixture path or freshly uploaded key) to the
+    URL the frontend can load directly, mirroring the same convention `storefront_product`
+    uses in app.py so inventory thumbnails and storefront images resolve identically."""
+    if not key:
+        return None
+    if key.startswith("http://") or key.startswith("https://"):
+        return key
+    return f"/mock-assets/{key.removeprefix('assets/mock/')}"
 
 
 def _invalidate_size_popularity(product_id: str) -> None:
@@ -130,6 +142,24 @@ async def list_seller_products(
             select(ProductSpecification).where(ProductSpecification.product_id.in_([p.id for p in products]))
         ).scalars():
             specs_by_product.setdefault(spec.product_id, []).append(spec)
+
+    from sqlalchemy import func
+
+    verified_ids: set[str] = set()
+    if products:
+        verified_ids = set(
+            session.execute(
+                select(ProductImage.product_id)
+                .where(
+                    ProductImage.product_id.in_([p.id for p in products]),
+                    ProductImage.angle.in_(("front", "back", "left", "right")),
+                    ProductImage.is_verified.is_(True),
+                )
+                .group_by(ProductImage.product_id)
+                .having(func.count() >= 4)
+            ).scalars()
+        )
+
     return [
         {
             "id": product.id,
@@ -139,6 +169,8 @@ async def list_seller_products(
             "price": product.price,
             "spec_source": product.spec_source,
             "stolen_photo_flag": product.stolen_photo_flag,
+            "images_verified": product.id in verified_ids,
+            "image_url": _media_url(product.media_primary),
             "specifications": [
                 {"key": s.key, "label": s.label, "value": s.value_json, "unit": s.unit}
                 for s in specs_by_product.get(product.id, [])
@@ -320,6 +352,7 @@ async def initialize_seller_product(
         catalogue_images=payload.catalogue_image_keys,
         media_primary=primary_image_key,
         stock=0,
+        spec_json={"garment_target": payload.garment_target},
     )
     session.add(product)
 
@@ -352,7 +385,14 @@ async def initialize_seller_product(
     data = {
         "seller_id": user.id,
         "product_id": product_id,
-        "image_keys": [primary_image_key],
+        # Agent 1 (image gen) only ever reads index 0 (the product photo, for VTON
+        # segmentation), so that must stay first -- but Agent 2 (OCR) reads *every*
+        # image in this list, and the seller's dedicated catalogue/label/tag photos
+        # (uploaded specifically so the printed material/fabric/wash-care text is
+        # legible) were never included here at all, so Agent 2 was OCR-ing only the
+        # plain product photo and reporting "label not visible" even when the seller
+        # had uploaded a perfectly readable tag photo separately.
+        "image_keys": [primary_image_key, *payload.catalogue_image_keys],
         "seller_specs": {},
     }
 
@@ -394,7 +434,27 @@ async def publish_seller_product(
         raise HTTPException(status_code=404, detail="Product not found")
 
     if product.status == "inconsistent":
-        raise HTTPException(status_code=400, detail="Cannot publish listing with unresolved spec conflicts")
+        # `status` was set to "inconsistent" once, at /initialize time, by Agent 2
+        # flagging an OCR-vs-CV mismatch -- nothing ever clears that column back.
+        # The Finalize screen's "Accept CV Value" button only ever updated the
+        # seller's local form state (and recorded the accepted value into
+        # `seller_corrections`), so a listing that legitimately had its conflict
+        # resolved in the UI was permanently blocked from ever publishing. Check
+        # against what was actually resolved instead of the frozen status flag.
+        recorded_conflicts = ((product.extraction_results or {}).get("evidence") or {}).get("conflicts") or []
+        unresolved = [c["field"] for c in recorded_conflicts if c.get("field") not in payload.seller_corrections]
+        if unresolved:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Please resolve the flagged spec conflict(s) before publishing: {', '.join(unresolved)}",
+            )
+
+    # garment_target was recorded on the product at /initialize time and drives
+    # whether a size chart is mandatory (garments) or optional (bags, jewellery,
+    # etc.) -- must be read before spec_json gets overwritten below.
+    garment_target = (product.spec_json or {}).get("garment_target", "woman")
+    if garment_target != "none" and not payload.size_chart:
+        raise HTTPException(status_code=400, detail="Size chart is required for garment products")
 
     product.title = payload.title
     product.brand = payload.brand
@@ -411,7 +471,7 @@ async def publish_seller_product(
 
     # Save specifications
     structured_specs = {item.key: item.value for item in payload.specifications}
-    product.spec_json = {**payload.seller_specs, **structured_specs}
+    product.spec_json = {"garment_target": garment_target, **payload.seller_specs, **structured_specs}
 
     # Delete existing specifications for this product to prevent duplicates/conflicts
     from sqlalchemy import delete
@@ -471,6 +531,41 @@ async def publish_seller_product(
     session.commit()
     _invalidate_size_popularity(product_id)
     return {"id": product.id, "status": product.status}
+
+
+@router.delete("/seller/products/{product_id}")
+async def delete_seller_product(
+    product_id: str,
+    user: Annotated[User, Depends(_require_seller)],
+    session: Session = Depends(get_session),
+):
+    """Lets a seller discard a draft/failed image-first listing (the "Delete" action
+    on a pending/unverified inventory card). Active listings can't be deleted this
+    way -- once published, use PATCH status instead -- so a stray API call can't
+    take down a real, orderable product."""
+    product = session.get(Product, product_id)
+    if not product or product.seller_id != user.id:
+        raise HTTPException(status_code=404, detail="Product not found")
+    if product.status == "active":
+        raise HTTPException(status_code=400, detail="Cannot delete an active listing")
+
+    from sqlalchemy import delete
+
+    variant_ids = [
+        v.id
+        for v in session.execute(
+            select(ProductVariant).where(ProductVariant.product_id == product_id)
+        ).scalars()
+    ]
+    if variant_ids:
+        session.execute(delete(CartItem).where(CartItem.product_variant_id.in_(variant_ids)))
+    session.execute(delete(ProductVariant).where(ProductVariant.product_id == product_id))
+    session.execute(delete(ProductSpecification).where(ProductSpecification.product_id == product_id))
+    session.execute(delete(ProductImage).where(ProductImage.product_id == product_id))
+    session.delete(product)
+    session.flush()
+    session.commit()
+    return {"id": product_id, "deleted": True}
 
 
 @router.patch("/seller/products/{product_id}")

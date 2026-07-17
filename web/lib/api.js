@@ -1,10 +1,25 @@
 const API = "/agent-api/v1";
-const TOKEN_KEY = "kavach.auth.v1";
+// Separate storage per side of the app, keyed by which route is currently loaded --
+// the Seller Portal (/seller/*) and the buyer storefront used to share one
+// "kavach.auth.v1" key, so having both open in different tabs of the same browser
+// (a very normal thing to do while testing) meant whichever tab last touched
+// localStorage silently overwrote the other's session. A buyer tab could end up
+// making API calls with a seller's token (or vice versa) with no visible sign
+// anything was wrong until a role-gated endpoint 403'd with a raw "Insufficient
+// role" error. Keying storage by route means each side keeps its own persistent
+// login independent of what's happening in the other tab.
+const BUYER_TOKEN_KEY = "kavach.auth.buyer.v1";
+const SELLER_TOKEN_KEY = "kavach.auth.seller.v1";
+
+function tokenKey() {
+  if (typeof window === "undefined") return BUYER_TOKEN_KEY;
+  return window.location.pathname.startsWith("/seller") ? SELLER_TOKEN_KEY : BUYER_TOKEN_KEY;
+}
 
 export function loadAuthSession() {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(TOKEN_KEY);
+    const raw = window.localStorage.getItem(tokenKey());
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -13,11 +28,12 @@ export function loadAuthSession() {
 
 export function saveAuthSession(session) {
   if (typeof window === "undefined") return;
+  const key = tokenKey();
   if (!session) {
-    window.localStorage.removeItem(TOKEN_KEY);
+    window.localStorage.removeItem(key);
     return;
   }
-  window.localStorage.setItem(TOKEN_KEY, JSON.stringify(session));
+  window.localStorage.setItem(key, JSON.stringify(session));
 }
 
 export async function request(path, options = {}) {

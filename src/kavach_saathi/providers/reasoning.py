@@ -312,3 +312,24 @@ class CascadingReasoningProvider(ReasoningProvider):
             except ReasoningUnavailable as exc:
                 last_exc = exc
         raise last_exc or ReasoningUnavailable("No reasoning provider is configured")
+
+
+def build_groq_first_reasoner(settings: Settings) -> ReasoningProvider:
+    """Groq-first cascade for Agent 2's OCR extraction specifically: live testing
+    found Gemini's shared capacity can hang well past its own stated timeout (not
+    just return a fast 503), which the plain Gemini-first `CascadingReasoningProvider`
+    used by Agents 3/5/7 has no way to route around quickly. Groq (separate
+    infrastructure, verified fast and accurate on real label photos) goes first here;
+    Gemini stays as a second attempt rather than being dropped, in case Groq itself is
+    ever unavailable.
+    """
+    candidates: list[ReasoningProvider] = []
+    if settings.groq_api_key:
+        candidates.append(GroqReasoningProvider(settings))
+    if settings.gemini_api_key:
+        candidates.append(GeminiReasoningProvider(settings))
+    if not candidates:
+        return DemoReasoningProvider()
+    if len(candidates) == 1:
+        return candidates[0]
+    return CascadingReasoningProvider(candidates)

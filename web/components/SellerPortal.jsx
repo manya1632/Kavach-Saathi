@@ -8,14 +8,15 @@ import {
   LayoutDashboard,
   LoaderCircle,
   LogOut,
-  Package,
+  RotateCcw,
   ShieldCheck,
+  Trash2,
   Upload,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
-import { loadAuthSession, login, logout, post, postAndPoll, request, saveAuthSession, signup } from "@/lib/api";
+import { del, loadAuthSession, login, logout, post, postAndPoll, request, saveAuthSession, signup } from "@/lib/api";
 
 const CATEGORIES = [
   "Kurti, Saree & Lehenga",
@@ -29,20 +30,22 @@ const CATEGORIES = [
   "Bags & Footwear",
 ];
 
-const SPEC_TEMPLATES = {
-  "Kurti, Saree & Lehenga": [["fabric", "Fabric composition", "text", "%", "fabric"], ["gsm", "Fabric weight", "number", "GSM", "fabric"], ["color_hex", "Color hex", "text", "", "color"]],
-  "Women Western": [["fabric", "Fabric composition", "text", "%", "fabric"], ["fit", "Fit", "text", "", "construction"], ["color_hex", "Color hex", "text", "", "color"]],
-  Lingerie: [["fabric", "Fabric composition", "text", "%", "fabric"], ["support_level", "Support level", "text", "", "performance"]],
-  Men: [["fabric", "Fabric composition", "text", "%", "fabric"], ["gsm", "Fabric weight", "number", "GSM", "fabric"], ["fit", "Fit", "text", "", "construction"]],
-  "Kids & Toys": [["material", "Material", "text", "", "construction"], ["recommended_age", "Recommended age", "text", "", "safety"]],
-  "Home & Kitchen": [["material", "Material", "text", "", "construction"], ["length_cm", "Length", "measurement", "cm", "dimensions"], ["width_cm", "Width", "measurement", "cm", "dimensions"]],
-  "Beauty & Health": [["net_quantity", "Net quantity", "number", "ml", "quantity"], ["skin_type", "Suitable skin type", "text", "", "performance"]],
-  "Jewellery & Accessories": [["base_metal", "Base metal", "text", "", "construction"], ["plating", "Plating", "text", "", "construction"], ["stone_type", "Stone type", "text", "", "construction"]],
-  "Bags & Footwear": [["material", "Material", "text", "", "construction"], ["capacity_l", "Capacity", "number", "L", "dimensions"], ["sole_material", "Sole material", "text", "", "construction"]],
-};
+// Agent 2 (the Honest Spec Enforcer) only ever reads what's actually printed on a
+// garment's care label/tag, so every wearable listing gets exactly these four
+// fields -- no per-category variation, since fields like "fit" or "capacity" were
+// never something OCR could extract in the first place.
+const GARMENT_SPEC_TEMPLATE = [["fabric", "Fabric composition", "text", "", "fabric"], ["gsm", "Fabric weight", "number", "GSM", "fabric"], ["color_hex", "Colour", "text", "", "color"], ["wash_care", "Wash care", "text", "", "care"]];
 
-function specificationTemplate(category) {
-  return (SPEC_TEMPLATES[category] || [["material", "Material", "text", "", "general"]]).map(([key, label, value_type, unit, comparison_group]) => ({ key, label, value: "", value_type, unit, comparison_group }));
+function garmentSpecificationTemplate() {
+  return GARMENT_SPEC_TEMPLATE.map(([key, label, value_type, unit, comparison_group]) => ({ key, label, value: "", value_type, unit, comparison_group }));
+}
+
+// Non-garment products (bags, jewellery, home goods, etc.) get just material +
+// color -- the two fields that reliably come back from the product photo.
+const NON_GARMENT_SPEC_TEMPLATE = [["fabric", "Material", "text", "", "construction"], ["color_hex", "Color", "text", "", "color"]];
+
+function nonGarmentSpecificationTemplate() {
+  return NON_GARMENT_SPEC_TEMPLATE.map(([key, label, value_type, unit, comparison_group]) => ({ key, label, value: "", value_type, unit, comparison_group }));
 }
 
 function SellerAuth({ onAuthenticated }) {
@@ -125,11 +128,20 @@ function DashboardTab({ profile }) {
   );
 }
 
+const GARMENT_TARGETS = [
+  { value: "woman", label: "Women's wear" },
+  { value: "man", label: "Men's wear" },
+  { value: "girl", label: "Girls' wear" },
+  { value: "boy", label: "Boys' wear" },
+  { value: "none", label: "Not a garment (bag, footwear, jewellery, etc.)" },
+];
+
 function AddProductTab({ onCreated }) {
   const [form, setForm] = useState({ title: "", brand: "", category: CATEGORIES[0], price: "", original_price: "", description: "", stock_qty: "" });
-  const [specifications, setSpecifications] = useState(() => specificationTemplate(CATEGORIES[0]));
+  const [specifications, setSpecifications] = useState(() => garmentSpecificationTemplate());
   const [sizes, setSizes] = useState([]);
-  
+  const [garmentTarget, setGarmentTarget] = useState("woman");
+
   const [productImages, setProductImages] = useState([]);
   const [catalogueImages, setCatalogueImages] = useState([]);
   const [initialized, setInitialized] = useState(false);
@@ -145,10 +157,6 @@ function AddProductTab({ onCreated }) {
 
   function update(field, value) {
     setForm((current) => ({ ...current, [field]: value }));
-  }
-
-  function updateSpec(index, field, value) {
-    setSpecifications((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item));
   }
 
   function parseDimensions(value) {
@@ -202,7 +210,7 @@ function AddProductTab({ onCreated }) {
       }
 
       setProgress("Initializing listing on the server...");
-      const res = await post("/seller/products/initialize", { product_image_keys: prodKeys, catalogue_image_keys: catKeys });
+      const res = await post("/seller/products/initialize", { product_image_keys: prodKeys, catalogue_image_keys: catKeys, garment_target: garmentTarget });
       setProductId(res.product_id);
 
       setProgress("Extracting specifications from catalogue images...");
@@ -219,7 +227,7 @@ function AddProductTab({ onCreated }) {
       const detail = await request(`/storefront/products/${res.product_id}`);
       const extracted = detail.extraction_results?.extracted_specs || {};
 
-      const defaultTemplate = specificationTemplate(form.category);
+      const defaultTemplate = garmentTarget === "none" ? nonGarmentSpecificationTemplate() : garmentSpecificationTemplate();
       const updatedSpecs = defaultTemplate.map(item => {
         if (extracted[item.key]) {
           return { ...item, value: String(extracted[item.key]) };
@@ -246,6 +254,22 @@ function AddProductTab({ onCreated }) {
       setError("Please resolve conflicts first by correcting values to match CV or accepting CV values.");
       return;
     }
+    const rowsWithUnparsedDimensions = sizes.filter(
+      (row) => row.size && row.dimensions?.trim() && Object.keys(parseDimensions(row.dimensions)).length === 0
+    );
+    if (rowsWithUnparsedDimensions.length > 0) {
+      setError(
+        `Couldn't read the measurements for size "${rowsWithUnparsedDimensions[0].size}" — use the format chest:91, waist:85, length:112 (each measurement needs a name and a number, separated by a colon).`
+      );
+      return;
+    }
+    const submittedSizes = sizes.filter((row) => row.size).map((row) => ({
+      size: row.size, dimensions_cm: parseDimensions(row.dimensions), stock_qty: Number(row.stock_qty || 0),
+    }));
+    if (garmentTarget !== "none" && submittedSizes.length === 0) {
+      setError("Size chart is required for garment products — add at least one size.");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -255,9 +279,6 @@ function AddProductTab({ onCreated }) {
         unit: item.unit || null,
         comparison_group: item.comparison_group || "general",
         comparable: true,
-      }));
-      const submittedSizes = sizes.filter((row) => row.size).map((row) => ({
-        size: row.size, dimensions_cm: parseDimensions(row.dimensions), stock_qty: Number(row.stock_qty || 0),
       }));
 
       await post(`/seller/products/${productId}/publish`, {
@@ -279,8 +300,9 @@ function AddProductTab({ onCreated }) {
       setProductId(null);
       setProductImages([]);
       setCatalogueImages([]);
+      setGarmentTarget("woman");
       setForm({ title: "", brand: "", category: CATEGORIES[0], price: "", original_price: "", description: "", stock_qty: "" });
-      setSpecifications(specificationTemplate(CATEGORIES[0]));
+      setSpecifications(garmentSpecificationTemplate());
       setSizes([]);
     } catch (err) {
       setError(err.message || "Failed to publish listing.");
@@ -292,10 +314,23 @@ function AddProductTab({ onCreated }) {
   return (
     <div className="seller-panel">
       {!initialized ? (
-        <form className="auth-form" onSubmit={handleInitializeAndExtract}>
+        <form key="initialize" className="auth-form" onSubmit={handleInitializeAndExtract}>
           <h3>Image-First Product Creation</h3>
           <p style={{ fontSize: "14px", color: "#64748b" }}>To list a product, please upload product images and catalogue images containing the garment label/tags first. Our agent enforcer will extract specifications before you fill the form.</p>
-          
+
+          <label>Who is this product for?
+            <select value={garmentTarget} onChange={(e) => setGarmentTarget(e.target.value)}>
+              {GARMENT_TARGETS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          {garmentTarget === "none" && (
+            <p style={{ fontSize: "13px", color: "#64748b", marginTop: "-8px" }}>
+              This isn&apos;t a wearable garment, so Agent 1 won&apos;t generate model-wearing views — your uploaded photo will be used as the catalogue image as-is.
+            </p>
+          )}
+
           <label>Product Images (2 to 4)<input type="file" accept="image/*" multiple onChange={handleProductImageChange} required /></label>
           {validationErrors.products && <p className="auth-error" style={{ marginTop: "-8px" }}>{validationErrors.products}</p>}
           
@@ -311,9 +346,45 @@ function AddProductTab({ onCreated }) {
           {busy && progress && <p className="listing-progress">{progress}</p>}
         </form>
       ) : (
-        <form className="auth-form" onSubmit={handlePublish}>
+        <form key="finalize" className="auth-form" onSubmit={handlePublish}>
           <h3>Finalize Product Details</h3>
-          
+
+          {!!result?.product?.catalogue_images?.length && garmentTarget === "none" && (
+            <div className="generated-preview" style={{ marginBottom: "16px" }}>
+              <strong style={{ display: "block", marginBottom: "8px" }}>Product photos</strong>
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                {[...new Map(result.product.catalogue_images.map((image) => [image.url, image])).values()].map((image, index) => (
+                  <img key={image.url} src={image.url} alt={`Product photo ${index + 1}`} style={{ width: "110px", height: "140px", objectFit: "cover", borderRadius: "6px", border: "1px solid #e5e7eb" }} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!!result?.product?.catalogue_images?.length && garmentTarget !== "none" && (
+            <div className="generated-preview" style={{ marginBottom: "16px" }}>
+              <strong style={{ display: "block", marginBottom: "8px" }}>
+                {result.product.catalogue_images.every((image) => image.verified)
+                  ? "Model photos (this is what buyers will see)"
+                  : "Preview — model photos pending"}
+              </strong>
+              {!result.product.catalogue_images.every((image) => image.verified) && (
+                <p style={{ fontSize: "13px", color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "6px", padding: "8px 12px", marginBottom: "10px" }}>
+                  Model-wearing photos couldn&apos;t be generated right now — buyers will see your uploaded product photo until an admin review completes.
+                </p>
+              )}
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                {result.product.catalogue_images.map((image) => (
+                  <div key={image.angle} style={{ position: "relative" }}>
+                    <img src={image.url} alt={`${image.angle} view`} style={{ width: "110px", height: "140px", objectFit: "cover", borderRadius: "6px", border: "1px solid #e5e7eb" }} />
+                    <span style={{ position: "absolute", bottom: "4px", left: "4px", right: "4px", textAlign: "center", fontSize: "11px", padding: "2px 4px", borderRadius: "4px", color: "#fff", background: image.verified ? "rgba(22,101,52,0.85)" : "rgba(146,64,14,0.85)" }}>
+                      {image.angle} {image.verified ? "✓" : "· pending"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {conflicts.length > 0 && (
             <div className="warn-note" style={{ padding: "12px", border: "1px solid #fecaca", backgroundColor: "#fef2f2", borderRadius: "6px", marginBottom: "16px" }}>
               <strong style={{ color: "#b91c1c", display: "block", marginBottom: "6px" }}>Spec Conflicts Detected by AI:</strong>
@@ -335,7 +406,7 @@ function AddProductTab({ onCreated }) {
           <label>Product title<input value={form.title} onChange={(event) => update("title", event.target.value)} required /></label>
           <label>Brand<input value={form.brand} onChange={(event) => update("brand", event.target.value)} /></label>
           <label>Category
-            <select value={form.category} onChange={(event) => { update("category", event.target.value); setSpecifications(specificationTemplate(event.target.value)); }}>
+            <select value={form.category} onChange={(event) => update("category", event.target.value)}>
               {CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
             </select>
           </label>
@@ -343,20 +414,15 @@ function AddProductTab({ onCreated }) {
           <label>Price (₹)<input type="number" min="1" value={form.price} onChange={(event) => update("price", event.target.value)} required /></label>
           <label>Original price (₹)<input type="number" min="1" value={form.original_price} onChange={(event) => update("original_price", event.target.value)} required /></label>
           <label>Standard stock (used when there is no size chart)<input type="number" min="0" value={form.stock_qty} onChange={(event) => update("stock_qty", event.target.value)} /></label>
-          
-          <fieldset className="dynamic-specs"><legend>Product-specific specifications</legend><small>These specifications were extracted from the images. Correct them if necessary.</small>
-            {specifications.map((item, index) => <div className="dynamic-spec-row" key={`${item.key}-${index}`}>
-              <input placeholder="Key" value={item.key} onChange={(event) => updateSpec(index, "key", event.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_"))} required />
-              <input placeholder="Display label" value={item.label} onChange={(event) => updateSpec(index, "label", event.target.value)} required />
-              <input placeholder="Value" value={item.value} onChange={(event) => updateSpec(index, "value", event.target.value)} required />
-              <select value={item.value_type} onChange={(event) => updateSpec(index, "value_type", event.target.value)}><option value="text">Text</option><option value="number">Number</option><option value="percentage">Percentage</option><option value="measurement">Measurement</option></select>
-              <input placeholder="Unit" value={item.unit} onChange={(event) => updateSpec(index, "unit", event.target.value)} />
-              <button type="button" onClick={() => setSpecifications((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</button>
+
+          <fieldset className="dynamic-specs"><legend>Product specifications</legend><small>Extracted automatically from your images — these can&apos;t be edited by hand. Use &quot;Accept CV value&quot; above to resolve any conflict instead.</small>
+            {specifications.map((item, index) => <div className="readonly-spec-row" key={`${item.key}-${index}`}>
+              <span className="readonly-spec-label">{item.label}</span>
+              <input value={item.value ? `${item.value}${item.unit ? ` ${item.unit}` : ""}` : "Not detected"} disabled readOnly />
             </div>)}
-            <button className="secondary-cta" type="button" onClick={() => setSpecifications((current) => [...current, { key: "", label: "", value: "", value_type: "text", unit: "", comparison_group: "general" }])}>Add specification</button>
           </fieldset>
-          
-          <fieldset className="dynamic-specs"><legend>Size chart (optional)</legend><small>Measurements are in cm. Use any applicable key:value dimensions.</small>
+
+          <fieldset className="dynamic-specs"><legend>Size chart {garmentTarget === "none" ? "(optional)" : "(required)"}</legend><small>Measurements are in cm. Use any applicable key:value dimensions.{garmentTarget !== "none" ? " At least one size is required for garment listings." : ""}</small>
             {sizes.map((row, index) => <div className="dynamic-size-row" key={index}>
               <input placeholder="Size (e.g. M)" value={row.size} onChange={(event) => setSizes((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, size: event.target.value } : item))} />
               <input placeholder="chest:91, waist:85, length:112" value={row.dimensions} onChange={(event) => setSizes((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, dimensions: event.target.value } : item))} />
@@ -376,60 +442,90 @@ function AddProductTab({ onCreated }) {
   );
 }
 
-function InventoryTab({ products, onAddVariant, busyAction }) {
-  const [variantForm, setVariantForm] = useState({});
-
-  function updateVariant(productId, field, value) {
-    setVariantForm((current) => ({ ...current, [productId]: { ...current[productId], [field]: value } }));
-  }
-
+function ConfirmDialog({ open, title, message, confirmLabel, busy, onConfirm, onCancel }) {
+  if (!open) return null;
   return (
-    <div className="seller-panel">
-      {!products.length && <p className="empty-note">No listings yet — add your first product in the &quot;Add Product&quot; tab.</p>}
-      {products.map((product) => (
-        <article className="inventory-row" key={product.id}>
-          <div>
-            <strong>{product.title}</strong>
-            <span className={`status-pill ${product.status}`}>{product.status}</span>
-            <p>{product.category} · ₹{product.price} · spec source: {product.spec_source}</p>
-            {!!product.specifications?.length && <p>{product.specifications.map((item) => `${item.label}: ${item.value}${item.unit ? ` ${item.unit}` : ""}`).join(" · ")}</p>}
-            {!!Object.keys(product.size_chart || {}).length && <p>Size chart: {Object.entries(product.size_chart).map(([size, dimensions]) => `${size} (${Object.entries(dimensions).map(([key, value]) => `${key} ${value}cm`).join(", ")})`).join(" · ")}</p>}
-            {product.stolen_photo_flag && <p className="warn-note">Flagged: possible copied catalogue photo</p>}
-          </div>
-          <div className="variant-list">
-            {product.variants.map((variant) => <span key={variant.id} className="variant-chip">{variant.size}: {variant.stock_qty} units</span>)}
-          </div>
-          <form
-            className="variant-form"
-            onSubmit={async (event) => {
-              event.preventDefault();
-              const form = variantForm[product.id] || {};
-              if (!form.size || !form.stock_qty) return;
-              await onAddVariant(product.id, { size: form.size, stock_qty: Number(form.stock_qty) });
-            }}
-          >
-            <input placeholder="Size (e.g. M)" value={variantForm[product.id]?.size || ""} onChange={(event) => updateVariant(product.id, "size", event.target.value)} />
-            <input placeholder="Stock" type="number" min="0" value={variantForm[product.id]?.stock_qty || ""} onChange={(event) => updateVariant(product.id, "stock_qty", event.target.value)} />
-            <button type="submit" disabled={busyAction === `variant-${product.id}`}>{busyAction === `variant-${product.id}` ? <LoaderCircle className="spin" size={14} /> : <Boxes size={14} />} {busyAction === `variant-${product.id}` ? "Saving…" : "Add/update variant"}</button>
-          </form>
-        </article>
-      ))}
+    <div className="confirm-modal-backdrop" role="presentation" onClick={onCancel}>
+      <div className="confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="confirm-modal-title" onClick={(event) => event.stopPropagation()}>
+        <h4 id="confirm-modal-title">{title}</h4>
+        <p>{message}</p>
+        <div className="confirm-modal-actions">
+          <button type="button" className="secondary-cta" onClick={onCancel} disabled={busy}>Cancel</button>
+          <button type="button" className="primary-cta" onClick={onConfirm} disabled={busy}>
+            {busy ? <LoaderCircle className="spin" size={14} /> : null} {confirmLabel}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
 
-function OrdersTab({ orders, onMark, busyAction }) {
+function InventoryTab({ products, onDelete, onTryAgain, busyAction }) {
+  // A listing stuck at plain "draft" (never finalized/published, and Agent 2 never
+  // flagged anything needing the seller's attention) whose images *did* pass
+  // verification is a dead end -- there's no way to act on it, so it just clutters
+  // the list with a permanent ₹0/0-unit placeholder. Hide only that specific case;
+  // "inconsistent"/"pending_seller_input" listings still need the seller to resolve
+  // a spec conflict or fill a missing field regardless of image-verification status,
+  // so those keep showing (with Delete/Try again) until actually published.
+  const visibleProducts = products.filter((product) => product.status !== "draft" || !product.images_verified);
+
+  return (
+    <div className="seller-panel">
+      {!visibleProducts.length && <p className="empty-note">No listings yet — add your first product in the &quot;Add Product&quot; tab.</p>}
+      {visibleProducts.map((product) => {
+        const isPending = product.status !== "active";
+        return (
+          <article className="inventory-row" key={product.id}>
+            <div className="inventory-row-main">
+              {product.image_url && <img className="inventory-thumb" src={product.image_url} alt={product.title} />}
+              <div>
+                <strong>{product.title}</strong>
+                <span className={`status-pill ${product.status}`}>{product.status}</span>
+                <span className={`status-pill ${product.images_verified ? "active" : "extracting"}`}>
+                  {product.images_verified ? "Images: verified" : "Images: pending admin review"}
+                </span>
+                <p>{product.category} · ₹{product.price} · spec source: {product.spec_source}</p>
+                {!!product.specifications?.length && <p>{product.specifications.map((item) => `${item.label}: ${item.value}${item.unit ? ` ${item.unit}` : ""}`).join(" · ")}</p>}
+                {!!Object.keys(product.size_chart || {}).length && <p>Size chart: {Object.entries(product.size_chart).map(([size, dimensions]) => `${size} (${Object.entries(dimensions).map(([key, value]) => `${key} ${value}cm`).join(", ")})`).join(" · ")}</p>}
+                {product.stolen_photo_flag && <p className="warn-note">Flagged: possible copied catalogue photo</p>}
+                {!!product.variants?.length && (
+                  <div className="variant-list">
+                    {product.variants.map((variant) => <span key={variant.id} className="variant-chip">{variant.size}: {variant.stock_qty} units</span>)}
+                  </div>
+                )}
+              </div>
+            </div>
+            {isPending && (
+              <div className="inventory-actions">
+                <button
+                  type="button"
+                  className="secondary-cta"
+                  disabled={busyAction === `delete-${product.id}`}
+                  onClick={() => onDelete(product.id)}
+                >
+                  {busyAction === `delete-${product.id}` ? <LoaderCircle className="spin" size={14} /> : <Trash2 size={14} />} Delete
+                </button>
+                <button type="button" className="primary-cta" onClick={() => onTryAgain(product.id)}>
+                  <RotateCcw size={14} /> Try again
+                </button>
+              </div>
+            )}
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function OrdersTab({ orders }) {
   return (
     <div className="seller-panel">
       {!orders.length && <p className="empty-note">No orders yet for your listings.</p>}
       {orders.map((order) => (
         <article className="order-row" key={`${order.order_id}-${order.product_id}`}>
-          <div><strong>{order.order_id}</strong><span className="status-pill">{order.status}</span></div>
+          <div><strong>{order.order_id}</strong><span className={`status-pill ${(order.status || "").toLowerCase()}`}>{order.status}</span></div>
           <p>{order.product_id} · size {order.size || "Standard"} · qty {order.qty} · ₹{order.price_at_purchase}</p>
-          <div className="order-actions">
-            <button type="button" disabled={busyAction === `order-${order.order_id}`} onClick={() => onMark(order.order_id, "PACKED")}>{busyAction === `order-${order.order_id}` ? <LoaderCircle className="spin" size={13} /> : <Package size={13} />} Mark packed</button>
-            <button type="button" disabled={busyAction === `order-${order.order_id}`} onClick={() => onMark(order.order_id, "SHIPPED")}>{busyAction === `order-${order.order_id}` ? <LoaderCircle className="spin" size={13} /> : <ClipboardList size={13} />} Mark shipped</button>
-          </div>
         </article>
       ))}
     </div>
@@ -477,6 +573,7 @@ export default function SellerPortal() {
   const [orders, setOrders] = useState([]);
   const [toast, setToast] = useState("");
   const [actionBusy, setActionBusy] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   useEffect(() => {
     // Reading localStorage must happen post-mount to avoid an SSR/client hydration mismatch.
@@ -512,30 +609,24 @@ export default function SellerPortal() {
     return <SellerAuth onAuthenticated={setAuth} />;
   }
 
-  async function addVariant(productId, payload) {
-    setActionBusy(`variant-${productId}`);
+  async function confirmDeleteProduct() {
+    const productId = confirmDeleteId;
+    if (!productId) return;
+    setActionBusy(`delete-${productId}`);
     try {
-      await post(`/seller/products/${productId}/variants`, payload);
+      await del(`/seller/products/${productId}`);
       await refreshAll();
-      setToast("Variant saved");
+      setToast("Listing deleted");
     } catch (reason) {
       setToast(reason.message);
     } finally {
       setActionBusy("");
+      setConfirmDeleteId(null);
     }
   }
 
-  async function markOrder(orderId, status) {
-    setActionBusy(`order-${orderId}`);
-    try {
-      await request(`/seller/orders/${orderId}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
-      await refreshAll();
-      setToast(`Order ${orderId} marked ${status.toLowerCase()}`);
-    } catch (reason) {
-      setToast(reason.message);
-    } finally {
-      setActionBusy("");
-    }
+  function tryAgainProduct() {
+    setTab("add");
   }
 
   const tabs = [
@@ -557,10 +648,19 @@ export default function SellerPortal() {
       </nav>
       <main className="seller-main">
         {tab === "add" && <AddProductTab onCreated={refreshAll} />}
-        {tab === "inventory" && <InventoryTab products={products} onAddVariant={addVariant} busyAction={actionBusy} />}
-        {tab === "orders" && <OrdersTab orders={orders} onMark={markOrder} busyAction={actionBusy} />}
+        {tab === "inventory" && <InventoryTab products={products} onDelete={setConfirmDeleteId} onTryAgain={tryAgainProduct} busyAction={actionBusy} />}
+        {tab === "orders" && <OrdersTab orders={orders} />}
       </main>
       {toast && <div className="toast" role="status" aria-live="polite"><Check size={16} /> {toast}</div>}
+      <ConfirmDialog
+        open={!!confirmDeleteId}
+        title="Delete this listing?"
+        message="This can't be undone — the listing, its images, and any variants will be permanently removed."
+        confirmLabel="Delete"
+        busy={actionBusy === `delete-${confirmDeleteId}`}
+        onConfirm={confirmDeleteProduct}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
     </div>
   );
 }

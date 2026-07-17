@@ -266,7 +266,7 @@ function VishwasSamvadChat({ auth, onClose, initialMessage = "", initialProduct 
   );
 }
 
-function ProductPageView({ product, similarProducts, busy, cart, cartBusy, onBack, onClose, onAdd, onUpdateCart, onOpenCart, onWishlist, wished, onSize, onReview, sizeSaathi, onOpenVishwasSamvad }) {
+function ProductPageView({ product, similarProducts, busy, cart, cartBusy, onBack, onClose, onAdd, onUpdateCart, onOpenCart, onWishlist, wished, onSize, onReview, sizeSaathi, onOpenVishwasSamvad, onOpenProduct }) {
   const [size, setSize] = useState("");
 
   useEffect(() => {
@@ -2440,6 +2440,7 @@ export default function Storefront({ initialProductId = null }) {
           onReview={checkReview}
           sizeSaathi={sizeSaathi ? { ...sizeSaathi, audioUrl: audioUrl(sizeSaathi.audioKey) } : null}
           onOpenVishwasSamvad={openVishwasSamvad}
+          onOpenProduct={(productId) => router.push(`/products/${productId}`)}
         />
         {!isOverlayOpen && (
           <button type="button" className="vishwas-samvad-launcher-btn" onClick={() => openVishwasSamvad(selected)} aria-label="Open Vishwas Saathi"><MessageCircle size={18} /><span><strong>Vishwas Saathi</strong><small>Ask about this product or your shopping journey</small></span></button>

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import json
-from pydantic import BaseModel, Field
+import re
 from typing import Literal
+
+from pydantic import BaseModel, Field
 
 from kavach_saathi.config import Settings
 from kavach_saathi.providers.reasoning import (
@@ -11,10 +12,12 @@ from kavach_saathi.providers.reasoning import (
     ReasoningUnavailable,
 )
 
+
 class VerificationMatch(BaseModel):
     passed: bool
     confidence: int = Field(ge=0, le=100)
     reason: str
+
 
 class TextQualityMatch(BaseModel):
     passed: bool
@@ -22,6 +25,7 @@ class TextQualityMatch(BaseModel):
         "relevant", "unrelated", "gibberish", "lyrics_spam", "too_little_info", "pot_relevant_unclear"
     ]
     reason: str
+
 
 class ReviewVerificationSchema(BaseModel):
     product_image_match: VerificationMatch
@@ -45,6 +49,75 @@ class ReviewVerificationResult(BaseModel):
     model: str
 
 
+_OPINION_WORDS = {
+    "amazing",
+    "average",
+    "awful",
+    "bad",
+    "beautiful",
+    "comfortable",
+    "excellent",
+    "good",
+    "great",
+    "nice",
+    "poor",
+    "soft",
+    "stiff",
+    "tight",
+    "uncomfortable",
+}
+_GENERIC_TITLE_WORDS = {"berry", "casual", "floral", "midi", "oxford", "the", "women", "womens"}
+
+
+def _has_meaningful_product_opinion(review_text: str, product_title: str) -> bool:
+    """Accept concise opinions that explicitly identify the purchased product type."""
+    review_words = set(re.findall(r"[a-z0-9]+", review_text.casefold()))
+    title_words = set(re.findall(r"[a-z0-9]+", product_title.casefold())) - _GENERIC_TITLE_WORDS
+    return bool(review_words & _OPINION_WORDS) and bool(review_words & title_words)
+
+
+def _to_result(
+    response: ReviewVerificationSchema,
+    *,
+    provider: str,
+    model: str,
+    product_title: str,
+    review_text: str,
+) -> ReviewVerificationResult:
+    text_passed = response.text_quality.passed
+    text_classification = response.text_quality.classification
+    text_reason = response.text_quality.reason
+    if (
+        not text_passed
+        and text_classification not in {"gibberish", "lyrics_spam"}
+        and _has_meaningful_product_opinion(review_text, product_title)
+    ):
+        text_passed = True
+        text_classification = "relevant"
+        text_reason = "Concise review contains an opinion and explicitly identifies the purchased product type."
+
+    overall_passed = (
+        response.product_image_match.passed
+        and response.product_image_match.confidence >= 60
+        and response.image_text_match.passed
+        and text_passed
+    )
+    return ReviewVerificationResult(
+        product_image_match_passed=response.product_image_match.passed,
+        product_image_match_confidence=response.product_image_match.confidence,
+        product_image_match_reason=response.product_image_match.reason,
+        image_text_match_passed=response.image_text_match.passed,
+        image_text_match_confidence=response.image_text_match.confidence,
+        image_text_match_reason=response.image_text_match.reason,
+        text_quality_passed=text_passed,
+        text_quality_classification=text_classification,
+        text_quality_reason=text_reason,
+        overall_passed=overall_passed,
+        provider=provider,
+        model=model,
+    )
+
+
 SYSTEM_PROMPT = """You are Kavach Saathi's Review Integrity and Authenticity Verifier.
 Your job is to run a multi-step verification of a customer review containing text and a photo of the received item.
 You are given two images:
@@ -55,16 +128,21 @@ Analyze the user's review photo against the catalogue photo and review text.
 Rules:
 1. product_image_match: Check if the user's photo (Image 2) shows the same product as the catalogue image (Image 1).
    - passed: True if it matches (confidence >= 60), False otherwise.
-   - confidence: 0 to 100 score. If the review image is corrupted, blank, or completely unrelated to clothing (e.g. screenshot, meme), confidence MUST be < 60.
+   - confidence: 0 to 100 score. If the review image is corrupted, blank, or completely unrelated to
+     clothing (e.g. screenshot, meme), confidence MUST be < 60.
 2. image_text_match: Check if the user's photo matches what they wrote in their review.
 3. text_quality: Assess the quality of the review text. Classification must be one of:
    - 'relevant' (discusses quality, fit, look of the product),
    - 'unrelated' (completely different topic),
    - 'gibberish' (random chars),
    - 'lyrics_spam' (song lyrics or copypasta),
-   - 'too_little_info' (e.g. single word like 'good' or 'nice' without substance, but if it has rating and minimum length check it can be considered relevant if it has context),
+   - 'too_little_info' (a single opinion word without a product reference),
    - 'pot_relevant_unclear' (potentially relevant but not fully clear).
-4. overall_passed: True only if product_image_match.passed is True (confidence >= 60) AND text_quality.classification is 'relevant' or 'pot_relevant_unclear'. Note: negative reviews criticizing product quality are perfectly valid; sentiment should not fail validation. Only fail if product is different, image is corrupted/unrelated, or text is spam/gibberish.
+   A concise review such as "Good shirt" is relevant when "shirt" identifies the purchased product.
+   Do not reject it only for being concise.
+4. overall_passed: True only if the product image matches with confidence >= 60, the image and text
+   match, and text quality passes. Negative reviews criticizing product quality are valid; sentiment
+   must not fail validation.
 """
 
 
@@ -87,7 +165,8 @@ class ReviewVerificationProvider:
 Product Specifications: {product_specs}
 Review Text: {review_text}
 
-Compare Image 1 (Catalogue image) and Image 2 (Reviewer's uploaded photo). Evaluate text quality and overall review validity.
+Compare Image 1 (Catalogue image) and Image 2 (Reviewer's uploaded photo).
+Evaluate text quality and overall review validity.
 """
         images = [catalogue_image_bytes, review_image_bytes]
 
@@ -100,19 +179,12 @@ Compare Image 1 (Catalogue image) and Image 2 (Reviewer's uploaded photo). Evalu
                     schema=ReviewVerificationSchema,
                     images=images,
                 )
-                return ReviewVerificationResult(
-                    product_image_match_passed=res.product_image_match.passed,
-                    product_image_match_confidence=res.product_image_match.confidence,
-                    product_image_match_reason=res.product_image_match.reason,
-                    image_text_match_passed=res.image_text_match.passed,
-                    image_text_match_confidence=res.image_text_match.confidence,
-                    image_text_match_reason=res.image_text_match.reason,
-                    text_quality_passed=res.text_quality.passed,
-                    text_quality_classification=res.text_quality.classification,
-                    text_quality_reason=res.text_quality.reason,
-                    overall_passed=res.overall_passed,
+                return _to_result(
+                    res,
                     provider="gemini",
                     model=self.settings.gemini_reasoning_model,
+                    product_title=product_title,
+                    review_text=review_text,
                 )
             except Exception:
                 pass
@@ -126,19 +198,12 @@ Compare Image 1 (Catalogue image) and Image 2 (Reviewer's uploaded photo). Evalu
                     schema=ReviewVerificationSchema,
                     images=images,
                 )
-                return ReviewVerificationResult(
-                    product_image_match_passed=res.product_image_match.passed,
-                    product_image_match_confidence=res.product_image_match.confidence,
-                    product_image_match_reason=res.product_image_match.reason,
-                    image_text_match_passed=res.image_text_match.passed,
-                    image_text_match_confidence=res.image_text_match.confidence,
-                    image_text_match_reason=res.image_text_match.reason,
-                    text_quality_passed=res.text_quality.passed,
-                    text_quality_classification=res.text_quality.classification,
-                    text_quality_reason=res.text_quality.reason,
-                    overall_passed=res.overall_passed,
+                return _to_result(
+                    res,
                     provider="groq",
                     model=self.settings.groq_vision_model,
+                    product_title=product_title,
+                    review_text=review_text,
                 )
             except Exception as exc:
                 raise ReasoningUnavailable(f"Review verification failed on all models: {exc}") from exc

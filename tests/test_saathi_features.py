@@ -313,6 +313,47 @@ def test_reviews_verification():
         session.close()
 
 
+def test_concise_product_review_is_not_misclassified():
+    from kavach_saathi.providers.review_provider import (
+        ReviewVerificationSchema,
+        TextQualityMatch,
+        VerificationMatch,
+        _to_result,
+    )
+
+    provider_response = ReviewVerificationSchema(
+        product_image_match=VerificationMatch(passed=True, confidence=94, reason="Same shirt."),
+        image_text_match=VerificationMatch(passed=True, confidence=91, reason="Text identifies the shirt."),
+        text_quality=TextQualityMatch(
+            passed=False,
+            classification="too_little_info",
+            reason="Concise review.",
+        ),
+        overall_passed=False,
+    )
+
+    accepted = _to_result(
+        provider_response,
+        provider="gemini",
+        model="test-model",
+        product_title="Berry Oxford Casual Shirt",
+        review_text="Good shirt",
+    )
+    unrelated = _to_result(
+        provider_response,
+        provider="gemini",
+        model="test-model",
+        product_title="Berry Oxford Casual Shirt",
+        review_text="Good shoes",
+    )
+
+    assert accepted.text_quality_passed is True
+    assert accepted.text_quality_classification == "relevant"
+    assert accepted.overall_passed is True
+    assert unrelated.text_quality_passed is False
+    assert unrelated.overall_passed is False
+
+
 def test_return_verification_multimodal():
     """Verify that return evidence submissions execute ReturnComparisonProvider and log results properly in database."""
     import asyncio

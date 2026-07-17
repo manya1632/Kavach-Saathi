@@ -309,7 +309,7 @@ function VishwasSamvadChat({ auth, onClose, initialMessage = "", initialProduct 
   );
 }
 
-function ProductPageView({ product, similarProducts, busy, cart, cartBusy, onBack, onClose, onAdd, onUpdateCart, onOpenCart, onWishlist, wished, onSize, onReview, sizeSaathi, onOpenVishwasSamvad }) {
+function ProductPageView({ product, busy, cart, cartBusy, onBack, onClose, onAdd, onUpdateCart, onOpenCart, onWishlist, wished, onSize, onReview, sizeSaathi, onOpenVishwasSamvad }) {
   const [size, setSize] = useState("");
 
   useEffect(() => {
@@ -339,8 +339,8 @@ function ProductPageView({ product, similarProducts, busy, cart, cartBusy, onBac
       </header>
       <main className="product-page" aria-label={product.name}>
         <div className="drawer-gallery four-view-gallery">
-          {(product.catalogue_images?.length ? product.catalogue_images : ["front", "back", "left", "right"].map((angle) => ({ angle, url: product.image_url }))).map((image) => <figure key={image.angle}><img src={assetUrl(image.url)} alt={`${product.name} ${image.angle} view`} /><figcaption>{image.angle === "left" || image.angle === "right" ? `${image.angle} side` : image.angle}</figcaption></figure>)}
           <span><ShieldCheck size={15} /> Verified listing</span>
+          {(product.catalogue_images?.length ? product.catalogue_images : ["front", "back", "left", "right"].map((angle) => ({ angle, url: product.image_url }))).map((image) => <figure key={image.angle}><img src={assetUrl(image.url)} alt={`${product.name} ${image.angle} view`} /><figcaption>{image.angle === "left" || image.angle === "right" ? `${image.angle} side` : image.angle}</figcaption></figure>)}
         </div>
         <div className="drawer-content">
           <p className="drawer-category">{product.category}</p>
@@ -453,20 +453,6 @@ function ProductPageView({ product, similarProducts, busy, cart, cartBusy, onBac
             </div>
           )}
           
-          {!!similarProducts?.length && (
-            <section className="similar-products">
-              <label>Similar products verified by Saathi</label>
-              <div className="product-grid">
-                {similarProducts.map((p) => (
-                  <button type="button" key={p.id} className="product-card" onClick={() => onOpenProduct(p.id)}>
-                    <img src={assetUrl(p.image_url)} alt={p.name} />
-                    <strong>{p.name}</strong>
-                    <span>{money(p.price)}</span>
-                  </button>
-                ))}
-              </div>
-            </section>
-          )}
         </div>
       </main>
 
@@ -1904,7 +1890,6 @@ export default function Storefront({ initialProductId = null }) {
   const [category, setCategory] = useState("All");
   const [visibleCount, setVisibleCount] = useState(50);
   const [selected, setSelected] = useState(null);
-  const [similarProducts, setSimilarProducts] = useState([]);
   const [drawer, setDrawer] = useState(null);
   const [cart, setCart] = useState([]);
   const [cartBusy, setCartBusy] = useState(null);
@@ -1938,7 +1923,8 @@ export default function Storefront({ initialProductId = null }) {
     reviewSummary ||
     returnRequestData ||
     reviewComposerData ||
-    actionDialogConfig
+    actionDialogConfig ||
+    cardPaymentData
   );
 
   useEffect(() => {
@@ -1964,17 +1950,6 @@ export default function Storefront({ initialProductId = null }) {
       .catch((reason) => setError(reason.message))
       .finally(() => setLoading(false));
   }, [initialProductId]);
-
-  useEffect(() => {
-    if (!selected?.id) {
-      return;
-    }
-    let active = true;
-    request(`/storefront/products/${selected.id}/similar`)
-      .then((payload) => { if (active) setSimilarProducts(payload.items || []); })
-      .catch(() => { if (active) setSimilarProducts([]); });
-    return () => { active = false; };
-  }, [selected?.id]);
 
   async function refreshCart() {
     if (!auth?.user) {
@@ -2193,18 +2168,6 @@ export default function Storefront({ initialProductId = null }) {
     setDrawer("return-verify");
   }
 
-
-  async function changeLanguage(languageCode) {
-    if (!auth?.user) return;
-    try {
-      const updated = await patch("/auth/language", { language: languageCode });
-      setAuth((current) => ({ ...current, user: { ...current.user, preferred_language: updated.preferred_language } }));
-      const label = LANGUAGE_OPTIONS.find((opt) => opt.code === languageCode)?.label || languageCode;
-      setToast(`Language set to ${label}`);
-    } catch (reason) {
-      setToast(reason.message || "Could not update language");
-    }
-  }
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -2460,7 +2423,6 @@ export default function Storefront({ initialProductId = null }) {
       <>
         <ProductPageView
           product={selected}
-          similarProducts={similarProducts}
           busy={busy}
           cart={cart}
           cartBusy={cartBusy}
@@ -2487,6 +2449,17 @@ export default function Storefront({ initialProductId = null }) {
         <ReturnVerificationDrawer open={drawer === "return-verify"} returnId={selectedReturnId} returns={returns} orders={orders} onClose={() => { setDrawer(null); refreshAccountData(); }} onRefreshData={refreshAccountData} />
         <AuthModal open={authModalOpen} onClose={() => { setAuthModalOpen(false); setPendingAfterAuth(null); }} onAuthenticated={handleAuthenticated} />
         <ReviewSummaryDialog data={reviewSummary} onClose={() => setReviewSummary(null)} />
+        {cardPaymentData && (
+          <CardPaymentDialog
+            key={cardPaymentData.orderId}
+            isOpen={true}
+            onClose={() => setCardPaymentData(null)}
+            onSubmit={handleCardPaymentSubmit}
+            amount={cardPaymentData.amount}
+            busy={cardPaymentBusy}
+            error={cardPaymentError}
+          />
+        )}
         {toast && <div className="toast" role="status" aria-live="polite"><Check size={16} /> {toast}</div>}
       </>
     );
@@ -2506,11 +2479,6 @@ export default function Storefront({ initialProductId = null }) {
             <button type="button" onClick={() => router.push("/support")}><Headphones size={19} /><span>Support</span></button>
             {auth?.user ? (
               <>
-                <label className="language-picker">
-                  <select value={auth.user.preferred_language} onChange={(event) => changeLanguage(event.target.value)} aria-label="Preferred language">
-                    {LANGUAGE_OPTIONS.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}
-                  </select>
-                </label>
                 <div className="account-menu"><button type="button" onClick={() => setAccountMenuOpen((open) => !open)} aria-expanded={accountMenuOpen} title={auth.user.email || auth.user.phone}><CircleUserRound size={19} /><span>{auth.user.name}</span><ChevronDown size={14} /></button>{accountMenuOpen && <div className="account-dropdown">
                   <button type="button" onClick={() => { setDrawer("orders"); setAccountMenuOpen(false); }}><Package size={14} /> My Orders <small>{orders.length}</small></button>
                   <button type="button" onClick={() => { setDrawer("cart"); setAccountMenuOpen(false); }}><ShoppingCart size={14} /> My Cart <small>{cart.reduce((sum, item) => sum + item.qty, 0)}</small></button>

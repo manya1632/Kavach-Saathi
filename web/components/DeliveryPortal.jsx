@@ -33,6 +33,7 @@ export default function DeliveryPortal() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
   const [workflow, setWorkflow] = useState(null);
   const [frontImage, setFrontImage] = useState(null);
   const [backImage, setBackImage] = useState(null);
@@ -63,19 +64,25 @@ export default function DeliveryPortal() {
     Promise.resolve().then(refresh);
   }, [authRole, hydrated, router]);
 
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timer = window.setTimeout(() => setNotice(""), 1000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
   const rows = activeTab === "pending-deliveries" ? deliveries.filter((row) => row.queue_state === "pending")
     : activeTab === "completed-deliveries" ? deliveries.filter((row) => row.queue_state === "completed")
       : activeTab === "pending-returns" ? returns.filter((row) => row.queue_state === "pending")
         : returns.filter((row) => row.queue_state === "completed");
 
   async function beginOtp() {
-    setBusy(true); setError(""); setNotice("");
+    setBusy(true); setError(""); setOtpSent(false);
     try {
       const path = workflow.type === "delivery"
         ? `/delivery/deliveries/${workflow.order_id}/otp/send`
         : `/delivery/returns/${workflow.return_id}/otp/send`;
-      const result = await post(path, { idempotency_key: crypto.randomUUID() });
-      setNotice(`${result.message} Ask the buyer for the six-digit code, then enter it below.`);
+      await post(path, { idempotency_key: crypto.randomUUID() });
+      setOtpSent(true);
     } catch (reason) { setError(reason.message); } finally { setBusy(false); }
   }
 
@@ -90,8 +97,9 @@ export default function DeliveryPortal() {
         idempotency_key: crypto.randomUUID(),
       });
       await post(`/delivery/deliveries/${workflow.order_id}/complete`, { otp_code: otp, idempotency_key: crypto.randomUUID() });
-      setWorkflow(null); setFrontImage(null); setBackImage(null); setOtp("");
+      setWorkflow(null); setFrontImage(null); setBackImage(null); setOtp(""); setOtpSent(false);
       await refresh();
+      setNotice("Delivery completed successfully.");
     } catch (reason) { setError(reason.message); } finally { setBusy(false); }
   }
 
@@ -104,9 +112,10 @@ export default function DeliveryPortal() {
         inspection_checklist: checks,
         idempotency_key: crypto.randomUUID(),
       });
-      setWorkflow(null); setOtp("");
+      setWorkflow(null); setOtp(""); setOtpSent(false);
       setChecks({ matches_images: false, seal_and_tags_present: false, undamaged: false });
       await refresh();
+      setNotice("Return completed successfully.");
     } catch (reason) { setError(reason.message); } finally { setBusy(false); }
   }
 
@@ -128,15 +137,15 @@ export default function DeliveryPortal() {
               <div className="delivery-card-title"><span>{isReturn ? <RotateCcw /> : <Truck />}</span><div><small>{isReturn ? "RETURN" : "ORDER"}</small><strong>{key}</strong></div><b>{row.status.replaceAll("_", " ")}</b></div>
               <dl><div><dt>Recipient</dt><dd>{row.customer_name}</dd></div><div><dt>Phone</dt><dd>{row.phone}</dd></div><div><dt>DIGIPIN</dt><dd>{row.address?.digipin || "—"}</dd></div>{!isReturn && <><div><dt>Payment</dt><dd>{row.payment_mode?.toUpperCase()} · {row.payment_status}</dd></div><div><dt>Promised date</dt><dd>{row.promised_delivery_date || "Buyer confirmation pending"}</dd></div></>}</dl>
               <p>{row.address?.raw_text || [row.address?.city, row.address?.state, row.address?.postal_pin].filter(Boolean).join(", ")}</p>
-              <div className="delivery-actions"><a href={row.gmaps_directions_url} target="_blank" rel="noreferrer"><MapPin size={15} /> Locate buyer</a>{row.queue_state === "pending" && <button type="button" onClick={() => setWorkflow({ type: isReturn ? "return" : "delivery", ...row })}>{isReturn ? "Inspect return" : "Deliver order"}</button>}</div>
+              <div className="delivery-actions"><a href={row.gmaps_directions_url} target="_blank" rel="noreferrer"><MapPin size={15} /> Locate buyer</a>{row.queue_state === "pending" && <button type="button" onClick={() => { setOtpSent(false); setWorkflow({ type: isReturn ? "return" : "delivery", ...row }); }}>{isReturn ? "Inspect return" : "Deliver order"}</button>}</div>
             </article>;
           })}
         </section>
       )}
 
-      {workflow && <div className="delivery-modal-layer"><section className="delivery-modal" role="dialog" aria-modal="true"><header><div><ShieldCheck /><strong>{workflow.type === "delivery" ? "Delivery verification" : "Return inspection"}</strong></div><button type="button" onClick={() => setWorkflow(null)}>×</button></header>
+      {workflow && <div className="delivery-modal-layer"><section className="delivery-modal" role="dialog" aria-modal="true"><header><div><ShieldCheck /><strong>{workflow.type === "delivery" ? "Delivery verification" : "Return inspection"}</strong></div><button type="button" onClick={() => { setOtpSent(false); setWorkflow(null); }}>×</button></header>
         {workflow.type === "delivery" ? <><p>Upload clear front and back images for every returnable item before requesting the buyer’s WhatsApp OTP.</p><label><FileImage /> Front image<input type="file" accept="image/*" capture="environment" onChange={(event) => setFrontImage(event.target.files?.[0] || null)} /></label><label><FileImage /> Back image<input type="file" accept="image/*" capture="environment" onChange={(event) => setBackImage(event.target.files?.[0] || null)} /></label></> : <><p>Compare the delivery evidence and buyer-submitted front/back images before approving pickup.</p>{[["matches_images", "Product matches both evidence sets"], ["seal_and_tags_present", "Required seal and price tags are present"], ["undamaged", "Product is undamaged"]].map(([name, label]) => <label className="inspection-check" key={name}><input type="checkbox" checked={checks[name]} onChange={(event) => setChecks((current) => ({ ...current, [name]: event.target.checked }))} /> {label}</label>)}</>}
-        <button type="button" className="secondary-cta" onClick={beginOtp} disabled={busy || (workflow.type === "delivery" ? !frontImage || !backImage : !Object.values(checks).every(Boolean))}><Upload size={15} /> Send WhatsApp OTP</button><input value={otp} onChange={(event) => setOtp(event.target.value)} inputMode="numeric" placeholder="Buyer-provided OTP" aria-label="Buyer OTP" />
+        <button type="button" className="secondary-cta" onClick={beginOtp} disabled={busy || (workflow.type === "delivery" ? !frontImage || !backImage : !Object.values(checks).every(Boolean))}><Upload size={15} /> Send WhatsApp OTP</button>{otpSent && <p className="delivery-otp-status" role="status">OTP sent. Enter the buyer’s six-digit code below.</p>}<input value={otp} onChange={(event) => setOtp(event.target.value)} inputMode="numeric" placeholder="Buyer-provided OTP" aria-label="Buyer OTP" />
         <button type="button" className="primary-cta" onClick={workflow.type === "delivery" ? completeDelivery : completeReturn} disabled={busy || !otp || (workflow.type === "delivery" ? !frontImage || !backImage : !Object.values(checks).every(Boolean))}>{busy ? <LoaderCircle className="spin" /> : <ShieldCheck />} {workflow.type === "delivery" ? "Complete delivery" : "Approve return"}</button>
       </section></div>}
     </main>

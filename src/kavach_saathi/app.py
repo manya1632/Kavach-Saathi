@@ -667,9 +667,26 @@ def create_app() -> FastAPI:
         run_record = await container.service.execute(WorkflowType.VOICE, voice_req.model_dump(mode="json"))
         res = run_record.results.get("voice_qa")
         if not res:
-            raise HTTPException(status_code=500, detail="Vishwas Samvad chat reasoning failed")
+            raise HTTPException(status_code=500, detail="Vishwas Saathi chat reasoning failed")
 
-        answer_text = res.user_message.get(payload.language, res.user_message["en"])
+        response_language = str(res.data.get("language") or "en")
+        transcript = str(res.data.get("transcript") or payload.text or "").strip()
+
+        with SessionLocal() as db_session:
+            from kavach_saathi.db.models import ChatMessage
+            db_msg = db_session.get(ChatMessage, user_msg["id"])
+            if db_msg:
+                db_msg.content = transcript
+                db_msg.metadata_json = {
+                    "audio_key": payload.audio_key,
+                    "input_type": "audio" if payload.audio_key else "text",
+                    "language": response_language,
+                }
+                db_session.commit()
+                user_msg["content"] = transcript
+                user_msg["metadata_json"] = db_msg.metadata_json
+
+        answer_text = res.user_message.get(response_language, res.user_message["en"])
 
         assistant_msg = container.repository.add_chat_message(
             payload.conversation_id, sender="assistant", content=answer_text, metadata_json=res.model_dump(mode="json")

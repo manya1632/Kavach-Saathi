@@ -46,9 +46,41 @@ export async function request(path, options = {}) {
     }
   }
   if (!response.ok) {
-    throw new Error(payload.detail || payload.error || `Request failed (${response.status})`);
+    const errMsg = formatErrorDetail(payload.detail) || payload.error || `Request failed (${response.status})`;
+    const error = new Error(errMsg);
+    error.detail = payload.detail;
+    throw error;
   }
   return payload;
+}
+
+export function formatErrorDetail(detail) {
+  if (!detail) return null;
+  if (typeof detail === "string") return detail;
+  if (typeof detail === "object") {
+    if (detail.message) {
+      let msg = detail.message;
+      if (detail.errors && typeof detail.errors === "object") {
+        const errDetails = Object.entries(detail.errors)
+          .map(([field, err]) => `${field}: ${formatErrorDetail(err)}`)
+          .join(", ");
+        if (errDetails) msg += ` (${errDetails})`;
+      }
+      return msg;
+    }
+    if (Array.isArray(detail)) {
+      return detail
+        .map((err) => {
+          const field = err.loc ? err.loc.filter(loc => loc !== "body" && loc !== "query").join(".") : "field";
+          return `${field}: ${err.msg}`;
+        })
+        .join(", ");
+    }
+    return Object.entries(detail)
+      .map(([key, val]) => `${key}: ${formatErrorDetail(val)}`)
+      .join(", ");
+  }
+  return String(detail);
 }
 
 export function post(path, body) {

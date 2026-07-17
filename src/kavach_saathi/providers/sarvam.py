@@ -7,6 +7,7 @@ import httpx
 from kavach_saathi.config import Settings
 
 _LANGUAGE_CODES = {
+    "auto": "unknown",
     "en": "en-IN",
     "hi": "hi-IN",
     "bn": "bn-IN",
@@ -61,29 +62,38 @@ class SarvamClient:
     async def transcribe(self, audio_bytes: bytes, language: str, *, content_type: str = "audio/wav") -> str:
         lang_code = _LANGUAGE_CODES.get(language, "hi-IN")
         extension = content_type.split("/")[-1].split(";")[0] or "wav"
-        async with httpx.AsyncClient(timeout=self.settings.provider_timeout_seconds) as client:
-            response = await client.post(
-                _STT_URL,
-                headers=self._headers(),
-                data={"model": "saarika:v2.5", "language_code": lang_code},
-                files={"file": (f"audio.{extension}", audio_bytes, content_type)},
-            )
-            response.raise_for_status()
-            return response.json()["transcript"]
+        try:
+            async with httpx.AsyncClient(timeout=self.settings.provider_timeout_seconds) as client:
+                response = await client.post(
+                    _STT_URL,
+                    headers=self._headers(),
+                    data={"model": "saarika:v2.5", "language_code": lang_code},
+                    files={"file": (f"audio.{extension}", audio_bytes, content_type)},
+                )
+                response.raise_for_status()
+                transcript = response.json().get("transcript", "").strip()
+                if not transcript:
+                    raise SarvamUnavailable("Sarvam returned an empty transcript")
+                return transcript
+        except (httpx.HTTPError, KeyError, ValueError) as exc:
+            raise SarvamUnavailable("Sarvam speech recognition is temporarily unavailable") from exc
 
     async def synthesize(self, text: str, language: str) -> bytes:
         lang_code = _LANGUAGE_CODES.get(language, "hi-IN")
-        async with httpx.AsyncClient(timeout=self.settings.provider_timeout_seconds) as client:
-            response = await client.post(
-                _TTS_URL,
-                headers={**self._headers(), "Content-Type": "application/json"},
-                json={
-                    "inputs": [_truncate_for_tts(text)],
-                    "target_language_code": lang_code,
-                    "speaker": "priya",
-                    "model": "bulbul:v3",
-                },
-            )
-            response.raise_for_status()
-            audio_b64 = response.json()["audios"][0]
-            return base64.b64decode(audio_b64)
+        try:
+            async with httpx.AsyncClient(timeout=self.settings.provider_timeout_seconds) as client:
+                response = await client.post(
+                    _TTS_URL,
+                    headers={**self._headers(), "Content-Type": "application/json"},
+                    json={
+                        "inputs": [_truncate_for_tts(text)],
+                        "target_language_code": lang_code,
+                        "speaker": "priya",
+                        "model": "bulbul:v3",
+                    },
+                )
+                response.raise_for_status()
+                audio_b64 = response.json()["audios"][0]
+                return base64.b64decode(audio_b64)
+        except (httpx.HTTPError, KeyError, ValueError, IndexError) as exc:
+            raise SarvamUnavailable("Sarvam speech synthesis is temporarily unavailable") from exc

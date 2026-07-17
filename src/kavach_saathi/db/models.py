@@ -300,6 +300,18 @@ class Review(Base):
     awaiting_analysis: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     relevance_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     media_relevance_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    validation_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    validation_model: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    product_image_match_passed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    product_image_match_confidence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    product_image_match_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_text_match_passed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    image_text_match_confidence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    image_text_match_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    text_quality_passed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    text_quality_classification: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    text_quality_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    overall_passed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 

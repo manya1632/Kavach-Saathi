@@ -9,10 +9,10 @@ from typing import Any
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from kavach_saathi.agents.base import Agent
 from kavach_saathi.agent_logging import log_agent_call
-from kavach_saathi.db.base import SessionLocal
+from kavach_saathi.agents.base import Agent
 from kavach_saathi.config import get_settings
+from kavach_saathi.db.base import SessionLocal
 from kavach_saathi.media_storage import read_image_bytes, write_generated_image
 from kavach_saathi.models import AgentName, AgentResult, Evidence, VoiceQueryRequest
 from kavach_saathi.providers.reasoning import ReasoningUnavailable
@@ -28,16 +28,59 @@ _AUDIO_CONTENT_TYPES = {
 }
 
 _SYSTEM_PROMPT = (
-    "You are Kavach Saathi's universal grounded shopping experience called 'विश्वास संवाद'. Answer only from the "
+    "You are Kavach Saathi's universal grounded shopping experience called 'Vishwas Saathi'. Answer only from the "
     "supplied commerce evidence -- verified product specs, real buyer reviews, active page grounding data (such as orders, returns, or address info), and past "
     "resolved Q&A. Never invent discounts, delivery dates, fabric claims, or return "
     "approvals. Refuse to invent delivery dates, refunds, stock, or product claims. "
     "If multiple products are supplied, compare them using only their listed evidence. "
-    "Write natural, idiomatic answers in each of English, Hindi, Bengali, Marathi, and Gujarati "
+    "Write natural, idiomatic answers in each of English, Hindi, Bengali, Marathi, and Gujarati. "
+    "The Hindi answer must use Roman Hindi (Hindi words written only in the Latin/English alphabet), "
+    "so a shopper who typed Hindi in English letters can read it naturally. "
     "-- not a literal word-for-word translation of one into the others. Do NOT call yourself an agent or display an agent number."
 )
 
 _LANGUAGE_CODES = ("en", "hi", "bn", "mr", "gu")
+
+_ROMAN_HINDI_MARKERS = {
+    "aap",
+    "apka",
+    "batao",
+    "bataiye",
+    "hai",
+    "hain",
+    "iss",
+    "iska",
+    "iski",
+    "isko",
+    "kaise",
+    "kaisa",
+    "kaisi",
+    "kapda",
+    "kapde",
+    "karein",
+    "kaunsa",
+    "konsa",
+    "mujhe",
+    "nahi",
+    "rang",
+    "sahi",
+    "size",
+    "kya",
+    "kitne",
+    "lagenge",
+}
+
+
+def detect_chat_language(text: str) -> str:
+    """Distinguish English from Hindi (Devanagari or Romanized) without trusting a browser language setting."""
+    if not text:
+        return "en"
+    import re
+    if re.search(r"[\u0900-\u097F]", text):
+        return "hi"
+    words = {word.strip(".,!?;:'\"()[]{}").lower() for word in text.split()}
+    return "hi" if len(words & _ROMAN_HINDI_MARKERS) >= 2 else "en"
+
 
 
 class VoiceAnswer(BaseModel):
@@ -223,9 +266,12 @@ class VoiceQAAgent(Agent):
             }
         if any(word in lower for word in ("fabric", "kapda", "material")):
             fabric = specs.get("fabric", "not verified")
+            color = specs.get("primary_color") or specs.get("color") or primary.get("color")
+            color_text = f" The verified color is {color}." if color else ""
+            hindi_color = f" Iska verified rang {color} hai." if color else ""
             return {
-                "en": f"The verified label lists the fabric as {fabric}.",
-                "hi": f"वेरिफाइड लेबल के अनुसार इसका कपड़ा {fabric} है।",
+                "en": f"The verified label lists the material as {fabric}.{color_text}",
+                "hi": f"Verified label ke anusaar iska material {fabric} hai.{hindi_color}",
                 "bn": f"যাচাইকৃত লেবেল অনুযায়ী এর কাপড় {fabric}।",
                 "mr": f"पडताळणी केलेल्या लेबलनुसार याचे कापड {fabric} आहे.",
                 "gu": f"ચકાસાયેલ લેબલ મુજબ આનું કાપડ {fabric} છે.",
@@ -234,14 +280,33 @@ class VoiceQAAgent(Agent):
             days = primary.get("return_window_days", 7)
             return {
                 "en": f"This product has a {days}-day return window. Return evidence is checked fairly.",
-                "hi": f"इस प्रोडक्ट पर {days} दिनों की रिटर्न विंडो है। रिटर्न एविडेंस निष्पक्ष तरीके से जाँचा जाता है।",
+                "hi": f"Is product par {days} din ki return window hai. Return evidence ko fair tareeke se check kiya jaata hai.",
                 "bn": f"এই পণ্যের {days} দিনের রিটার্ন উইন্ডো আছে। রিটার্ন প্রমাণ ন্যায্যভাবে পরীক্ষা করা হয়।",
                 "mr": f"या उत्पादनासाठी {days} दिवसांची परतावा मुदत आहे. परतावा पुरावा निष्पक्षपणे तपासला जातो.",
                 "gu": f"આ પ્રોડક્ટ માટે {days} દિવસની રિટર્ન વિન્ડો છે. રિટર્ન પુરાવો ન્યાયી રીતે તપાસવામાં આવે છે.",
             }
+        if any(word in lower for word in ("wash", "dhona", "dhoyein", "karein")):
+            wash_care = specs.get("wash_care", "not verified")
+            return {
+                "en": f"The verified wash-care instruction is: {wash_care}.",
+                "hi": f"Verified wash-care instruction yeh hai: {wash_care}.",
+                "bn": f"The verified wash-care instruction is: {wash_care}.",
+                "mr": f"The verified wash-care instruction is: {wash_care}.",
+                "gu": f"The verified wash-care instruction is: {wash_care}.",
+            }
+        if any(word in lower for word in ("delivery", "deliver", "lagenge")):
+            delivery_days = primary.get("delivery_days")
+            if delivery_days is not None:
+                return {
+                    "en": f"The listed delivery estimate starts at {delivery_days} days.",
+                    "hi": f"Listed delivery estimate lagbhag {delivery_days} din se shuru hota hai.",
+                    "bn": f"The listed delivery estimate starts at {delivery_days} days.",
+                    "mr": f"The listed delivery estimate starts at {delivery_days} days.",
+                    "gu": f"The listed delivery estimate starts at {delivery_days} days.",
+                }
         return {
             "en": f"{primary['name']} costs Rs {primary['price']} and its verified details are available.",
-            "hi": f"{primary['name']} की कीमत ₹{primary['price']} है; इसकी वेरिफाइड डिटेल्स उपलब्ध हैं।",
+            "hi": f"{primary['name']} ki keemat Rs {primary['price']} hai; iski verified details available hain.",
             "bn": f"{primary['name']}-এর দাম ₹{primary['price']}; এর যাচাইকৃত বিবরণ উপলব্ধ।",
             "mr": f"{primary['name']} ची किंमत ₹{primary['price']} आहे; याचा पडताळणी केलेला तपशील उपलब्ध आहे.",
             "gu": f"{primary['name']} ની કિંમત ₹{primary['price']} છે; તેની ચકાસાયેલ વિગતો ઉપલબ્ધ છે.",
@@ -262,6 +327,8 @@ class VoiceQAAgent(Agent):
                 transcript_source = "sarvam_stt"
             except (SarvamUnavailable, FileNotFoundError) as exc:
                 raise RuntimeError("Voice transcription could not be completed") from exc
+
+        response_language = detect_chat_language(transcript) if request.language == "auto" else request.language
 
         # 1. Resolve active page grounding evidence
         grounding_data = {}
@@ -390,17 +457,19 @@ class VoiceQAAgent(Agent):
                 retrieved = {}
                 provider = "deterministic_keyword_fallback"
 
-        answer_text = answers.get(request.language, answers["en"])
-        try:
-            audio_bytes = await self.sarvam.synthesize(answer_text, request.language)
-            audio_key = write_generated_image(
-                f"generated/audio/{hashlib.sha1(answer_text.encode()).hexdigest()[:16]}.wav",
-                audio_bytes,
-                settings,
-                content_type="audio/wav",
-            )
-        except SarvamUnavailable:
-            audio_key = None
+        answer_text = answers.get(response_language, answers["en"])
+        audio_key = None
+        if request.synthesize_audio:
+            try:
+                audio_bytes = await self.sarvam.synthesize(answer_text, response_language)
+                audio_key = write_generated_image(
+                    f"generated/audio/{hashlib.sha1(answer_text.encode()).hexdigest()[:16]}.wav",
+                    audio_bytes,
+                    settings,
+                    content_type="audio/wav",
+                )
+            except SarvamUnavailable:
+                audio_key = None
 
         result = AgentResult(
             agent=AgentName.VOICE_QA,
@@ -415,7 +484,7 @@ class VoiceQAAgent(Agent):
             data={
                 "transcript": transcript,
                 "audio_key": audio_key,
-                "language": request.language,
+                "language": response_language,
                 "rag_error": rag_error,
             },
             user_message=answers,

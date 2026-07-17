@@ -224,8 +224,8 @@ def test_size_popularity_and_fallback():
         assert result.status == RunStatus.NEEDS_EVIDENCE
         assert result.data["needs_guidance"] is True
         assert len(result.actions) == 1
-        assert result.actions[0].type == "open_vishwas_samvad"
-        assert "विश्वास संवाद" in result.user_message["hi"]
+        assert result.actions[0].type == "open_vishwas_saathi"
+        assert "Vishwas Saathi" in result.user_message["en"]
 
         # Test Case 2: With popularity data -> Recommended size from popularity
         # Create ProductVariant first
@@ -281,7 +281,7 @@ def test_size_popularity_and_fallback():
         session.close()
 
 
-def test_vishwas_samvad_chat_persistence():
+def test_vishwas_saathi_chat_persistence():
     from kavach_saathi.container import get_container
 
     session = SessionLocal()
@@ -304,12 +304,12 @@ def test_vishwas_samvad_chat_persistence():
         assert chat["page_route"] == "/products/123"
 
         # Add messages
-        msg1 = container.repository.add_chat_message(chat["id"], "user", "मेरा सही साइज़ क्या है?")
-        msg2 = container.repository.add_chat_message(chat["id"], "assistant", "विश्वास संवाद में आपका स्वागत है।")
+        msg1 = container.repository.add_chat_message(chat["id"], "user", "Which size should I choose?")
+        msg2 = container.repository.add_chat_message(chat["id"], "assistant", "Welcome to Vishwas Saathi.")
 
         msgs = container.repository.list_chat_messages(chat["id"])
         assert len(msgs) == 2
-        assert msgs[0]["content"] == "मेरा सही साइज़ क्या है?"
+        assert msgs[0]["content"] == "Which size should I choose?"
         assert msgs[1]["sender"] == "assistant"
 
         # Archive
@@ -319,6 +319,39 @@ def test_vishwas_samvad_chat_persistence():
     finally:
         cleanup_entities(session)
         session.close()
+
+
+def test_audio_requests_follow_the_explicit_ui_flow():
+    from kavach_saathi.orchestration.graph import AgentGraphs
+    from kavach_saathi.models import ChatMessageSend
+
+    size_routed = AgentGraphs._voice_intent(
+        {"request": {"audio_key": "uploads/voice/question.webm", "voice_flow": "size"}}
+    )
+    chat_routed = AgentGraphs._voice_intent(
+        {"request": {"audio_key": "uploads/voice/question.webm", "voice_flow": "general"}}
+    )
+    assert size_routed["intent"] == "size"
+    assert chat_routed["intent"] == "general"
+
+    audio_message = ChatMessageSend(
+        conversation_id="CHAT-TEST",
+        audio_key="uploads/voice/question.webm",
+        language="en",
+    )
+    assert audio_message.text == ""
+    with pytest.raises(ValueError, match="Either text or audio_key is required"):
+        ChatMessageSend(conversation_id="CHAT-TEST", language="en")
+
+
+def test_vishwas_saathi_detects_roman_hindi_and_english():
+    from kavach_saathi.agents.voice import detect_chat_language
+
+    assert detect_chat_language("Iss kapde ka rang and material kaisa hai?") == "hi"
+    assert detect_chat_language("इसको वॉश कैसे करें?") == "hi"
+    assert detect_chat_language("Iss kapde ko wash kaise karein?") == "hi"
+    assert detect_chat_language("How should I wash this garment?") == "en"
+    assert detect_chat_language("What is the color and material of this product?") == "en"
 
 
 def test_delivery_boy_flow_and_reschedule():

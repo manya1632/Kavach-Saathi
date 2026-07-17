@@ -281,6 +281,8 @@ class VoiceQueryRequest(BaseModel):
     compare_product_ids: list[str] = Field(default_factory=list, max_length=100)
     text: str | None = None
     audio_key: str | None = None
+    synthesize_audio: bool = False
+    voice_flow: Literal["auto", "size", "general"] = "auto"
     language: str = "hi"
     page_route: str | None = None
     page_type: str | None = None
@@ -348,8 +350,8 @@ class ReviewCreateRequest(BaseModel):
     product_id: str
     order_id: str
     rating: int = Field(ge=1, le=5)
-    text: str = Field(default="", max_length=2000)
-    image_key: str | None = None
+    text: str = Field(min_length=10, max_length=2000)
+    image_key: str = Field(min_length=1, max_length=255)
 
 
 class ReturnCreateRequest(BaseModel):
@@ -408,7 +410,7 @@ class AddressCreateRequest(BaseModel):
     longitude: float
     address_type: str = "Home"
     is_default: bool = False
-    verification_session_id: str
+    verification_session_id: str | None = None
 
 
 class AddressUpdateRequest(BaseModel):
@@ -470,7 +472,7 @@ class ChatConversationCreate(BaseModel):
 
 class ChatMessageSend(BaseModel):
     conversation_id: str
-    text: str
+    text: str = ""
     audio_key: str | None = None
     language: str = "hi"
     page_route: str | None = None
@@ -479,3 +481,9 @@ class ChatMessageSend(BaseModel):
     order_id: str | None = None
     return_id: str | None = None
     idempotency_key: str | None = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def require_text_or_audio(self) -> ChatMessageSend:
+        if not self.text.strip() and not self.audio_key:
+            raise ValueError("Either text or audio_key is required")
+        return self

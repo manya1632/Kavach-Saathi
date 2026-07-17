@@ -308,6 +308,9 @@ img { max-width: 100%; }
 .agent-answer svg { flex: 0 0 auto; margin-top: 1px; }
 .size-saathi-answer { flex-direction: column; gap: 4px; }
 .size-saathi-answer strong { font-size: 10px; }
+.size-saathi-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.size-saathi-actions button { display: inline-flex; align-items: center; gap: 5px; }
+.recording-status { color: #b42318 !important; font-weight: 700; }
 .review-list { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
 .review-list-header { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
 .review-list-header > label { display: flex; align-items: center; gap: 6px; color: var(--plum); font-size: 9px; font-weight: 900; }
@@ -559,7 +562,7 @@ img { max-width: 100%; }
   .portal-public-footer { align-items: flex-start; flex-direction: column; }
 }
 
-/* विश्वास संवाद Custom Chat Styles */
+/* Vishwas Saathi chat styles */
 .vishwas-samvad-launcher-btn {
   position: fixed;
   z-index: 999;
@@ -587,6 +590,8 @@ img { max-width: 100%; }
 .vishwas-conversation-picker { display: flex; gap: 8px; align-items: center; padding: 8px 12px; font-size: 11px; border-bottom: 1px solid var(--line); }
 .vishwas-conversation-picker select { min-width: 0; flex: 1; }
 .vishwas-message { display: flex; max-width: 88%; padding: 9px 11px; border-radius: 12px; white-space: pre-wrap; }
+.vishwas-message.assistant { flex-direction: column; gap: 8px; }
+.vishwas-message audio { width: min(280px, 100%); }
 .vishwas-message.user { align-self: flex-end; color: white; background: var(--plum); }
 .vishwas-message.assistant { align-self: flex-start; background: #f3f0f5; }
 .vishwas-prompts { display: flex; gap: 6px; overflow-x: auto; padding: 7px 10px; }
@@ -801,6 +806,10 @@ img { max-width: 100%; }
 .vishwas-samvad-input-area input:focus {
   border-color: var(--plum);
 }
+.vishwas-record-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 40px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--plum); cursor: pointer; }
+.vishwas-record-btn.recording { border-color: #b42318; color: #b42318; background: #fff1f0; font-weight: 800; }
+.vishwas-record-btn:disabled { cursor: not-allowed; opacity: .6; }
+.vishwas-recording-status { padding: 0 12px 10px; color: #b42318; font-weight: 700; }
 
 .vishwas-samvad-send-btn {
   background: var(--plum);

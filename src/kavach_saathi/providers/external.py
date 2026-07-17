@@ -48,8 +48,10 @@ class DemoExternalProvider(ExternalProvider):
             places,
             key=lambda item: abs(item[0] - latitude) + abs(item[1] - longitude),
         )
+        locality = "Lingiadih" if city == "Bilaspur" else ""
         return {
             "label": f"Verified landmark address, {city}, {state} {pin}",
+            "locality": locality,
             "city": city,
             "state": state,
             "postal_pin": pin,
@@ -175,6 +177,7 @@ class LiveExternalProvider(ExternalProvider):
         address = place["Address"]
         return {
             "label": address.get("Label", ""),
+            "locality": address.get("Neighborhood", "") or address.get("Sublocality", "") or "",
             "city": address.get("Locality", ""),
             "state": address.get("Region", {}).get("Name", ""),
             "postal_pin": address.get("PostalCode", ""),

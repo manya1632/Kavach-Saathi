@@ -265,7 +265,7 @@ function VishwasSamvadChat({ auth, onClose, initialMessage = "", initialProduct 
   );
 }
 
-function ProductPageView({ product, similarProducts, busy, cart, cartBusy, onBack, onClose, onAdd, onUpdateCart, onOpenCart, onWishlist, wished, onSize, onReview, onAsk, onAskVoice, voiceAudioUrl, agentAnswer, sizeSaathi, onOpenVishwasSamvad }) {
+function ProductPageView({ product, similarProducts, busy, cart, cartBusy, onBack, onClose, onAdd, onUpdateCart, onOpenCart, onWishlist, wished, onSize, onReview, sizeSaathi, onOpenVishwasSamvad }) {
   const [size, setSize] = useState("");
 
   useEffect(() => {
@@ -274,47 +274,7 @@ function ProductPageView({ product, similarProducts, busy, cart, cartBusy, onBac
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (sizeSaathi?.size) setSize(sizeSaathi.size);
   }, [sizeSaathi?.size]);
-  const [question, setQuestion] = useState("Iska fabric aur return policy batao");
-  const [recording, setRecording] = useState(false);
-  const [requestingMic, setRequestingMic] = useState(false);
-  const mediaRecorderRef = useRef(null);
-  const chunksRef = useRef([]);
 
-  async function toggleRecording() {
-    if (recording) {
-      mediaRecorderRef.current?.stop();
-      setRecording(false);
-      return;
-    }
-    if (!navigator.mediaDevices?.getUserMedia) {
-      onAskVoiceError("This browser does not support microphone access");
-      return;
-    }
-    setRequestingMic(true);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      chunksRef.current = [];
-      recorder.ondataavailable = (event) => { if (event.data.size > 0) chunksRef.current.push(event.data); };
-      recorder.onstop = () => {
-        stream.getTracks().forEach((track) => track.stop());
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
-        onAskVoice(blob);
-      };
-      mediaRecorderRef.current = recorder;
-      recorder.start();
-      setRecording(true);
-    } catch (reason) {
-      const message = reason?.name === "NotAllowedError" ? "Microphone access was denied" : reason?.name === "NotFoundError" ? "No microphone was found" : "Could not access the microphone";
-      onAskVoiceError(message);
-    } finally {
-      setRequestingMic(false);
-    }
-  }
-
-  function onAskVoiceError(message) {
-    onAskVoice(null, message);
-  }
 
   const sizes = useMemo(() => Object.keys(product?.size_chart || {}), [product]);
   if (!product) return null;
@@ -347,7 +307,7 @@ function ProductPageView({ product, similarProducts, busy, cart, cartBusy, onBac
           {!!product.badges?.length && <div className="product-badges">{product.badges.map((badge) => <span key={badge}><Check size={11} /> {badge}</span>)}</div>}
           <div className="trust-banner"><ShieldCheck size={19} /><div><strong>Verified product details</strong><p>Catalogue imagery and specifications matched to verified label details.</p></div></div>
 
-          {!!sizes.length && <div className="size-section"><div className="section-label"><strong>Select size</strong><button type="button" onClick={onSize} disabled={busy}>{busy ? <LoaderCircle className="spin" size={13} /> : <Sparkles size={13} />} Ask Size Saathi</button></div><div className="size-row">{sizes.map((item) => <button className={selectedSize === item ? "selected" : ""} type="button" key={item} onClick={() => setSize(item)}>{item}</button>)}</div>{!selectedSize && <small>Choose a size, or ask Size Saathi for evidence-based guidance. No size is preselected.</small>}{sizeSaathi && <div className="agent-answer size-saathi-answer">{sizeSaathi.size ? <strong>{sizeSaathi.source === "product_popularity" ? "Popular-size fallback" : "Size Saathi recommendation"}: {sizeSaathi.size}</strong> : <strong>More information needed</strong>}{sizeSaathi.message && <span>{sizeSaathi.message}</span>}{sizeSaathi.audioUrl && <audio controls src={sizeSaathi.audioUrl} style={{ width: "100%", marginTop: 8 }} />}</div>}</div>}
+          {!!sizes.length && <div className="size-section"><div className="section-label"><strong>Select size</strong><button type="button" onClick={onSize} disabled={busy}>{busy ? <LoaderCircle className="spin" size={13} /> : <Sparkles size={13} />} Ask Size Saathi</button></div><div className="size-row">{sizes.map((item) => <button className={selectedSize === item ? "selected" : ""} type="button" key={item} onClick={() => setSize(item)}>{item}</button>)}</div>{!selectedSize && <small>Choose a size, or ask Size Saathi for evidence-based guidance. No size is preselected.</small>}{sizeSaathi && <div className="agent-answer size-saathi-answer">{sizeSaathi.size ? <strong>{sizeSaathi.source === "product_popularity" ? "Popular-size fallback" : "Size Saathi recommendation"}: {sizeSaathi.size}</strong> : <strong>More information needed</strong>}{sizeSaathi.message && <span>{sizeSaathi.message}</span>}</div>}</div>}
 
           <section className="trust-banner" aria-label="विश्वास संवाद">
             <MessageCircle size={19} />
@@ -380,25 +340,24 @@ function ProductPageView({ product, similarProducts, busy, cart, cartBusy, onBac
                 <button className="primary-cta" type="button" onClick={onOpenCart}>Go to cart <ArrowRight size={16} /></button>
               </div>
             ) : (
-              <button className="primary-cta" type="button" onClick={() => onAdd(product, selectedSize)} disabled={!selectedSize || cartBusy === variantId} aria-busy={cartBusy === variantId}>
-                {cartBusy === variantId ? <LoaderCircle className="spin" size={16} /> : <ShoppingBag size={16} />} {cartBusy === variantId ? "Adding…" : "Add to cart"}
+              <button
+                className="primary-cta"
+                type="button"
+                onClick={() => selectedSize && onAdd(product, selectedSize)}
+                disabled={!selectedSize || (variantId !== null && cartBusy === variantId)}
+                aria-busy={variantId !== null && cartBusy === variantId}
+              >
+                {variantId !== null && cartBusy === variantId ? (
+                  <LoaderCircle className="spin" size={16} />
+                ) : (
+                  <ShoppingBag size={16} />
+                )}
+                {!selectedSize ? "Select a size" : variantId !== null && cartBusy === variantId ? "Adding…" : "Add to cart"}
               </button>
             )}
           </div>
 
-          <form className="ask-saathi" onSubmit={(event) => { event.preventDefault(); onAsk(question); }}>
-            <label htmlFor="product-question"><Mic size={15} /> Ask in Hindi or English</label>
-            <div>
-              <input id="product-question" value={question} onChange={(event) => setQuestion(event.target.value)} />
-              <button type="button" onClick={toggleRecording} disabled={requestingMic} aria-pressed={recording} title={recording ? "Stop recording" : "Ask by voice"}>{requestingMic ? <LoaderCircle className="spin" size={15} /> : recording ? "⏹" : <Mic size={15} />}</button>
-              <button type="submit" disabled={busy}>Ask</button>
-            </div>
-            {requestingMic && <small style={{ color: "var(--plum)", fontWeight: 600 }}>Waiting for microphone permission…</small>}
-            {recording && <small style={{ color: "var(--accent, #e5484d)", fontWeight: 600 }}>Recording… click mic again to stop</small>}
-            <small>Answers are grounded in verified product specifications and customer reviews.</small>
-            {agentAnswer && <div className="agent-answer"><Sparkles size={14} /> <span>{agentAnswer}</span></div>}
-            {voiceAudioUrl && <audio controls src={voiceAudioUrl} style={{ width: "100%", marginTop: 8 }} />}
-          </form>
+
 
           {!!product.reviews?.length && (
             <div className="review-list">
@@ -1226,12 +1185,53 @@ function AddressManagerDrawer({ open, onClose, buyerId, fullScreen = false }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const mapRef = useRef(null);
   const leafletMap = useRef(null);
   const marker = useRef(null);
+
+  const successTimeoutRef = useRef(null);
+  const errorTimeoutRef = useRef(null);
+
+  function triggerSuccess(msg) {
+    if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+    setSuccess(msg);
+    successTimeoutRef.current = setTimeout(() => {
+      setSuccess("");
+    }, 1000);
+  }
+
+  function triggerError(msg) {
+    if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+    setError(msg);
+    errorTimeoutRef.current = setTimeout(() => {
+      setError("");
+    }, 1000);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+      if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+      if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+      const clearNotice = window.setTimeout(() => {
+        setSuccess("");
+        setError("");
+        setFieldErrors({});
+      }, 0);
+      return () => window.clearTimeout(clearNotice);
+    }
+    return undefined;
+  }, [open]);
 
   useEffect(() => {
     if (open && buyerId) {
@@ -1304,13 +1304,21 @@ function AddressManagerDrawer({ open, onClose, buyerId, fullScreen = false }) {
   async function handleGeocode() {
     setBusy(true);
     setError("");
+    setFieldErrors({});
     try {
-      const validation = await post("/addresses/reverse-geocode", coords);
+      let currentCoords = coords;
+      if (marker.current) {
+        const pos = marker.current.getLatLng();
+        currentCoords = { latitude: pos.lat, longitude: pos.lng };
+        setCoords(currentCoords);
+      }
+      const validation = await post("/addresses/reverse-geocode", currentCoords);
       const city = validation.city || "";
       const district = validation.district || validation.city || "";
       const state = validation.state || "";
       const postal_pin = validation.postal_pin || "";
       const label = validation.label || "";
+      const locality = validation.locality || "";
 
       setFormData((prev) => ({
         ...prev,
@@ -1318,11 +1326,12 @@ function AddressManagerDrawer({ open, onClose, buyerId, fullScreen = false }) {
         district,
         state,
         postal_pin,
-        address_line1: prev.address_line1 || label
+        locality,
+        address_line1: label
       }));
-      setSuccess("Location geocoded successfully! Fields updated.");
+      triggerSuccess("Location geocoded successfully! Fields updated.");
     } catch (err) {
-      setError("Geocoding failed: " + err.message);
+      triggerError("Geocoding failed: " + err.message);
     } finally {
       setBusy(false);
     }
@@ -1331,6 +1340,7 @@ function AddressManagerDrawer({ open, onClose, buyerId, fullScreen = false }) {
   async function handleManualGeocode() {
     setBusy(true);
     setError("");
+    setFieldErrors({});
     try {
       const result = await post("/addresses/geocode", formData);
       const next = { latitude: result.latitude, longitude: result.longitude };
@@ -1339,9 +1349,9 @@ function AddressManagerDrawer({ open, onClose, buyerId, fullScreen = false }) {
         marker.current.setLatLng([next.latitude, next.longitude]);
         leafletMap.current.setView([next.latitude, next.longitude], 16);
       }
-      setSuccess("Address located. Review the map pin, then verify your phone and save.");
+      triggerSuccess("Address located. Review the map pin, then verify your phone and save.");
     } catch (err) {
-      setError("Address lookup failed: " + err.message);
+      triggerError("Address lookup failed: " + err.message);
     } finally {
       setBusy(false);
     }
@@ -1349,11 +1359,12 @@ function AddressManagerDrawer({ open, onClose, buyerId, fullScreen = false }) {
 
   function useCurrentLocation() {
     if (!navigator.geolocation) {
-      setError("This browser does not support location access.");
+      triggerError("This browser does not support location access.");
       return;
     }
     setBusy(true);
     setError("");
+    setFieldErrors({});
     navigator.geolocation.getCurrentPosition(
       async ({ coords: position }) => {
         const next = { latitude: position.latitude, longitude: position.longitude };
@@ -1366,22 +1377,23 @@ function AddressManagerDrawer({ open, onClose, buyerId, fullScreen = false }) {
           const result = await post("/addresses/reverse-geocode", next);
           setFormData((previous) => ({
             ...previous,
-            address_line1: previous.address_line1 || result.label || "",
-            city: result.city || previous.city,
-            district: result.district || result.city || previous.district,
-            state: result.state || previous.state,
-            postal_pin: result.postal_pin || previous.postal_pin,
+            address_line1: result.label || "",
+            locality: result.locality || "",
+            city: result.city || "",
+            district: result.district || result.city || "",
+            state: result.state || "",
+            postal_pin: result.postal_pin || "",
           }));
-          setSuccess("Current location captured. Adjust the pin if needed.");
+          triggerSuccess("Current location captured. Adjust the pin if needed.");
         } catch (err) {
-          setError("Location captured, but address lookup failed: " + err.message);
+          triggerError("Location captured, but address lookup failed: " + err.message);
         } finally {
           setBusy(false);
         }
       },
       (reason) => {
         setBusy(false);
-        setError(reason.message || "Location permission was not granted.");
+        triggerError(reason.message || "Location permission was not granted.");
       },
       { enableHighAccuracy: true, timeout: 15000 }
     );
@@ -1391,11 +1403,18 @@ function AddressManagerDrawer({ open, onClose, buyerId, fullScreen = false }) {
     e.preventDefault();
     setBusy(true);
     setError("");
+    setFieldErrors({});
     try {
+      let currentCoords = coords;
+      if (marker.current) {
+        const pos = marker.current.getLatLng();
+        currentCoords = { latitude: pos.lat, longitude: pos.lng };
+        setCoords(currentCoords);
+      }
       const payload = {
         ...formData,
-        latitude: coords.latitude,
-        longitude: coords.longitude,
+        latitude: currentCoords.latitude,
+        longitude: currentCoords.longitude,
       };
       if (mode === "add") {
         await post("/addresses", payload);
@@ -1405,11 +1424,16 @@ function AddressManagerDrawer({ open, onClose, buyerId, fullScreen = false }) {
           body: JSON.stringify(payload)
         });
       }
-      setSuccess("Address saved. The phone number was validated by carrier lookup.");
+      triggerSuccess("Address saved. The phone number was validated by carrier lookup.");
       setMode("list");
       loadAddresses();
     } catch (err) {
-      setError("Failed to save address: " + err.message);
+      if (err.detail && err.detail.errors) {
+        setFieldErrors(err.detail.errors);
+        triggerError(err.detail.message || "Validation failed");
+      } else {
+        triggerError(err.message || "Failed to save address");
+      }
     } finally {
       setBusy(false);
     }
@@ -1428,7 +1452,7 @@ function AddressManagerDrawer({ open, onClose, buyerId, fullScreen = false }) {
       await del(`/addresses/${confirmDeleteId}`);
       setConfirmDeleteId(null);
       loadAddresses();
-      setSuccess("Address deleted successfully.");
+      triggerSuccess("Address deleted successfully.");
     } catch (err) {
       setDeleteError("Failed to delete address: " + err.message);
     } finally {
@@ -1440,9 +1464,9 @@ function AddressManagerDrawer({ open, onClose, buyerId, fullScreen = false }) {
     try {
       await post(`/addresses/${id}/default`);
       loadAddresses();
-      setSuccess("Default address updated.");
+      triggerSuccess("Default address updated.");
     } catch (err) {
-      setError("Failed to set default: " + err.message);
+      triggerError("Failed to set default: " + err.message);
     }
   }
 
@@ -1465,6 +1489,7 @@ function AddressManagerDrawer({ open, onClose, buyerId, fullScreen = false }) {
     setMode("add");
     setError("");
     setSuccess("");
+    setFieldErrors({});
   }
 
   function startEdit(addr) {
@@ -1487,6 +1512,7 @@ function AddressManagerDrawer({ open, onClose, buyerId, fullScreen = false }) {
     setMode("edit");
     setError("");
     setSuccess("");
+    setFieldErrors({});
   }
 
   const drawerContent = (
@@ -1501,8 +1527,48 @@ function AddressManagerDrawer({ open, onClose, buyerId, fullScreen = false }) {
         {!fullScreen && <button type="button" onClick={onClose} aria-label="Close"><X size={20} /></button>}
       </div>
 
-        {error && <div className="toast error" style={{ position: "static", margin: "16px", background: "#fdf0f0", color: "#e5484d", border: "1px solid #f8c8c9" }}>{error}</div>}
-        {success && <div className="toast success" style={{ position: "static", margin: "16px", background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0" }}>{success}</div>}
+      {error && (
+        <div style={{
+          position: "fixed",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          zIndex: 9999,
+          background: "rgba(229, 72, 77, 0.95)",
+          backdropFilter: "blur(4px)",
+          color: "#fff",
+          padding: "16px 24px",
+          borderRadius: "12px",
+          fontWeight: "600",
+          boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.3)",
+          textAlign: "center",
+          pointerEvents: "none",
+          maxWidth: "90vw"
+        }} role="alert">
+          {error}
+        </div>
+      )}
+      {success && (
+        <div style={{
+          position: "fixed",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          zIndex: 9999,
+          background: "rgba(22, 163, 74, 0.95)",
+          backdropFilter: "blur(4px)",
+          color: "#fff",
+          padding: "16px 24px",
+          borderRadius: "12px",
+          fontWeight: "600",
+          boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.3)",
+          textAlign: "center",
+          pointerEvents: "none",
+          maxWidth: "90vw"
+        }} role="status">
+          {success}
+        </div>
+      )}
 
         <div className="account-data-list" style={{ padding: "0 16px 24px", overflowY: "auto", flex: 1 }}>
           {mode === "list" ? (
@@ -1546,6 +1612,7 @@ function AddressManagerDrawer({ open, onClose, buyerId, fullScreen = false }) {
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 <label htmlFor="address-recipient" style={{ fontWeight: 600 }}>Recipient Name *</label>
                 <input id="address-recipient" value={formData.recipient_name} onChange={(e) => setFormData({ ...formData, recipient_name: e.target.value })} required />
+                {fieldErrors.recipient_name && <small className="field-error">{fieldErrors.recipient_name}</small>}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 <label htmlFor="address-phone" style={{ fontWeight: 600 }}>Phone Number *</label>
@@ -1553,7 +1620,7 @@ function AddressManagerDrawer({ open, onClose, buyerId, fullScreen = false }) {
                   <select value={formData.country} onChange={(e) => setFormData({ ...formData, country: e.target.value })} aria-label="Phone country"><option>India</option><option>United States</option><option>United Kingdom</option></select>
                   <input id="address-phone" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} placeholder="+919876543210" required style={{ flex: 1 }} />
                 </div>
-                <small>The backend normalizes this number and validates it with Twilio Lookup when you save. This validates carrier numbering data, not ownership.</small>
+                {fieldErrors.phone && <small className="field-error">{fieldErrors.phone}</small>}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 <label style={{ fontWeight: 600 }}>Choose Delivery Location on Map *</label>
@@ -1568,6 +1635,7 @@ function AddressManagerDrawer({ open, onClose, buyerId, fullScreen = false }) {
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 <label htmlFor="address-line-1" style={{ fontWeight: 600 }}>Address Line 1 *</label>
                 <input id="address-line-1" value={formData.address_line1} onChange={(e) => setFormData({ ...formData, address_line1: e.target.value })} required />
+                {fieldErrors.address_line1 && <small className="field-error">{fieldErrors.address_line1}</small>}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 <label htmlFor="address-line-2" style={{ fontWeight: 600 }}>Address Line 2 (Optional)</label>
@@ -1576,15 +1644,18 @@ function AddressManagerDrawer({ open, onClose, buyerId, fullScreen = false }) {
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 <label htmlFor="address-locality" style={{ fontWeight: 600 }}>Locality (Optional)</label>
                 <input id="address-locality" value={formData.locality} onChange={(e) => setFormData({ ...formData, locality: e.target.value })} />
+                {fieldErrors.locality && <small className="field-error">{fieldErrors.locality}</small>}
               </div>
               <div style={{ display: "flex", gap: "12px" }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: "6px", flex: 1 }}>
                   <label htmlFor="address-city" style={{ fontWeight: 600 }}>City *</label>
                   <input id="address-city" value={formData.city} onChange={(e) => setFormData({ ...formData, city: e.target.value })} required />
+                  {fieldErrors.city && <small className="field-error">{fieldErrors.city}</small>}
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "6px", flex: 1 }}>
                   <label htmlFor="address-district" style={{ fontWeight: 600 }}>District *</label>
                   <input id="address-district" value={formData.district} onChange={(e) => setFormData({ ...formData, district: e.target.value })} required />
+                  {fieldErrors.district && <small className="field-error">{fieldErrors.district}</small>}
                 </div>
               </div>
               <button type="button" className="secondary-cta wide" onClick={handleManualGeocode} disabled={busy}>Locate this manually entered address on the map</button>
@@ -1592,10 +1663,12 @@ function AddressManagerDrawer({ open, onClose, buyerId, fullScreen = false }) {
                 <div style={{ display: "flex", flexDirection: "column", gap: "6px", flex: 1 }}>
                   <label htmlFor="address-state" style={{ fontWeight: 600 }}>State *</label>
                   <input id="address-state" value={formData.state} onChange={(e) => setFormData({ ...formData, state: e.target.value })} required />
+                  {fieldErrors.state && <small className="field-error">{fieldErrors.state}</small>}
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "6px", flex: 1 }}>
                   <label htmlFor="address-pin" style={{ fontWeight: 600 }}>Postal PIN *</label>
                   <input id="address-pin" value={formData.postal_pin} onChange={(e) => setFormData({ ...formData, postal_pin: e.target.value })} maxLength={6} required />
+                  {fieldErrors.postal_pin && <small className="field-error">{fieldErrors.postal_pin}</small>}
                 </div>
               </div>
               <div style={{ display: "flex", gap: "12px" }}>
@@ -1800,6 +1873,16 @@ export default function Storefront({ initialProductId = null }) {
   const [vishwasInitialMsg, setVishwasInitialMsg] = useState("");
   const [vishwasInitialProduct, setVishwasInitialProduct] = useState(null);
   const [vishwasInitialPrompts, setVishwasInitialPrompts] = useState([]);
+  const isOverlayOpen = !!(
+    drawer ||
+    vishwasOpen ||
+    authModalOpen ||
+    reviewSummary ||
+    returnRequestData ||
+    reviewComposerData ||
+    confirmationCallData ||
+    actionDialogConfig
+  );
 
   useEffect(() => {
     // Restoring the browser session is intentionally client-only; the server render
@@ -2038,7 +2121,7 @@ export default function Storefront({ initialProductId = null }) {
       if (selected?.id === productId) {
         setSelected(await request(`/storefront/products/${productId}`));
       }
-      setToast("Review posted — checking content in the background");
+      setToast("Verified review posted successfully");
     } catch (reason) {
       setReviewComposerError(reason.message || "Could not post this review");
     } finally {
@@ -2342,14 +2425,12 @@ export default function Storefront({ initialProductId = null }) {
           wished={wishlist.some((item) => item.product.id === selected.id)}
           onSize={recommendSize}
           onReview={checkReview}
-          onAsk={askQuestion}
-          onAskVoice={askVoice}
-          voiceAudioUrl={audioUrl(voiceAudioKey)}
-          agentAnswer={agentAnswer}
           sizeSaathi={sizeSaathi ? { ...sizeSaathi, audioUrl: audioUrl(sizeSaathi.audioKey) } : null}
           onOpenVishwasSamvad={openVishwasSamvad}
         />
-        <button type="button" className="vishwas-samvad-launcher-btn" onClick={() => openVishwasSamvad(selected)} aria-label="विश्वास संवाद खोलें"><MessageCircle size={18} /><span><strong>विश्वास संवाद</strong><small>इस उत्पाद या खरीदारी से जुड़ा सवाल पूछें</small></span></button>
+        {!isOverlayOpen && (
+          <button type="button" className="vishwas-samvad-launcher-btn" onClick={() => openVishwasSamvad(selected)} aria-label="Open Vishwas Saathi"><MessageCircle size={18} /><span><strong>Vishwas Saathi</strong><small>Ask about this product or your shopping journey</small></span></button>
+        )}
         {vishwasOpen && <div className="vishwas-samvad-panel"><VishwasSamvadChat auth={auth} onClose={() => setVishwasOpen(false)} initialMessage={vishwasInitialMsg} initialProduct={vishwasInitialProduct} initialPrompts={vishwasInitialPrompts} /></div>}
         <CartDrawer items={cart} open={drawer === "cart"} busyItem={cartBusy} onClose={() => setDrawer(null)} onUpdate={updateCartQuantity} onRemove={removeFromCart} onCheckout={() => requireAuth(() => { setDrawer("checkout"); setCheckoutStep("address"); })} />
         <CheckoutDrawer open={drawer === "checkout"} busy={busy} step={checkoutStep} orderId={lastOrderId} orderSummary={lastOrderSummary} onClose={() => setDrawer(null)} onGoOrders={() => setDrawer("orders")} onConfirm={confirmOrder} onConfirmPrepaid={confirmOrderPrepaid} addresses={addresses} onManageAddresses={() => setDrawer("addresses")} buyerName={auth?.user?.name} />
@@ -2506,10 +2587,12 @@ export default function Storefront({ initialProductId = null }) {
           error={cardPaymentError}
         />
       )}
-      {/* विश्वास संवाद Persistent Widget */}
-      <button type="button" className="vishwas-samvad-launcher-btn" onClick={() => vishwasOpen ? setVishwasOpen(false) : openVishwasSamvad()} aria-label="विश्वास संवाद खोलें">
-        <MessageCircle size={18} /><span><strong>विश्वास संवाद</strong><small>इस पेज या खरीदारी से जुड़ा सवाल पूछें</small></span>
-      </button>
+      {/* Vishwas Saathi Persistent Widget */}
+      {!isOverlayOpen && (
+        <button type="button" className="vishwas-samvad-launcher-btn" onClick={() => vishwasOpen ? setVishwasOpen(false) : openVishwasSamvad()} aria-label="Open Vishwas Saathi">
+          <MessageCircle size={18} /><span><strong>Vishwas Saathi</strong><small>Ask about this page or your shopping journey</small></span>
+        </button>
+      )}
 
       {vishwasOpen && (
         <div className="vishwas-samvad-panel">
@@ -2671,7 +2754,17 @@ function ReviewComposerDialog({ isOpen, onClose, onSubmit, busy, error, product,
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    onSubmit({ rating, text, file });
+    const trimmed = text.trim();
+    if (trimmed.length < 10) {
+      setFileError("Review text must be at least 10 characters long.");
+      return;
+    }
+    if (!file) {
+      setFileError("Please attach exactly one product photo.");
+      return;
+    }
+    setFileError("");
+    onSubmit({ rating, text: trimmed, file });
   };
 
   return (
@@ -2682,27 +2775,27 @@ function ReviewComposerDialog({ isOpen, onClose, onSubmit, busy, error, product,
           <div><strong style={{ display: "block", fontSize: 14 }}>{product?.product_name || "Purchased product"}</strong><small style={{ color: "#64748b" }}>Order {orderId}</small></div>
         </div>
         <div>
-          <span style={{ display: "block", marginBottom: "6px", fontWeight: "600", fontSize: "13px" }}>Rating</span>
+          <span style={{ display: "block", marginBottom: "6px", fontWeight: "600", fontSize: "13px" }}>Rating *</span>
           <div role="radiogroup" aria-label="Rating" style={{ display: "flex", gap: 4 }}>
             {[1, 2, 3, 4, 5].map((value) => <button key={value} type="button" role="radio" aria-checked={rating === value} aria-label={`${value} star${value === 1 ? "" : "s"}`} onClick={() => setRating(value)} style={{ border: 0, background: "none", padding: 3, cursor: "pointer", color: value <= rating ? "#f59e0b" : "#cbd5e1" }}><Star size={26} fill="currentColor" /></button>)}
           </div>
         </div>
         <div>
-          <label htmlFor="review-text" style={{ display: "block", marginBottom: "6px", fontWeight: "600", fontSize: "13px" }}>Review Details</label>
+          <label htmlFor="review-text" style={{ display: "block", marginBottom: "6px", fontWeight: "600", fontSize: "13px" }}>Review Details *</label>
           <textarea
             id="review-text"
             rows={4}
             value={text}
             maxLength={2000}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Write your review here..."
+            placeholder="Write your review here (minimum 10 characters)..."
             style={{ width: "100%", padding: "10px", border: "1px solid var(--border)", borderRadius: "6px", resize: "none" }}
           />
           <small style={{ display: "block", textAlign: "right", color: "#64748b" }}>{text.length}/2000</small>
         </div>
 
         <div>
-          <label htmlFor="review-photo" style={{ display: "block", marginBottom: "6px", fontWeight: "600", fontSize: "13px" }}>Attach Photo (Optional)</label>
+          <label htmlFor="review-photo" style={{ display: "block", marginBottom: "6px", fontWeight: "600", fontSize: "13px" }}>Attach Photo *</label>
           <input
             id="review-photo"
             type="file"
@@ -2718,7 +2811,7 @@ function ReviewComposerDialog({ isOpen, onClose, onSubmit, busy, error, product,
         {error && <div style={{ color: "#ef4444", fontSize: "13px", fontWeight: "600" }}>{error}</div>}
         <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end", borderTop: "1px solid var(--line)", paddingTop: "12px" }}>
           <button type="button" className="secondary-cta" onClick={onClose} disabled={busy}>Cancel</button>
-          <button type="submit" className="primary-cta" disabled={busy || fileError}>
+          <button type="submit" className="primary-cta" disabled={busy || fileError || !text.trim() || !file}>
             {busy ? <LoaderCircle className="spin" size={14} /> : null}
             Submit Review
           </button>

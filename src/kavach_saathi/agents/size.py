@@ -280,21 +280,21 @@ class SizeTranslatorAgent(Agent):
             else:
                 # Fallback 2: no orders -> Needs guidance
                 confidence = 30
-                summary = "इस उत्पाद के लिए अभी पर्याप्त खरीदारी इतिहास उपलब्ध नहीं है।"
+                summary = "There is not enough purchase history for this product yet."
                 user_message = {
-                    "hi": "इस उत्पाद के लिए अभी पर्याप्त खरीदारी इतिहास उपलब्ध नहीं है। सही साइज़ जानने के लिए विश्वास संवाद में अपना सामान्य साइज़, शरीर का प्रकार या छाती/कमर जैसे माप बताएं।",
-                    "en": "There is currently not enough purchase history for this product. Please tell Vishwas Samvad your typical size, body type, or chest/waist measurements.",
+                    "hi": "There is currently not enough purchase history for this product. Please tell Vishwas Saathi your typical size, body type, or chest and waist measurements.",
+                    "en": "There is currently not enough purchase history for this product. Please tell Vishwas Saathi your typical size, body type, or chest and waist measurements.",
                     "bn": "এই পণ্যের জন্য এখনও পর্যাপ্ত ক্রয়ের ইতিহাস নেই। সঠিক আকার জানতে আপনার সাধারণ আকার, শরীরের ধরন বা বুক/কোমরের পরিমাপ বলুন।",
                     "mr": "या उत्पादनासाठी अद्याप पुरेसा खरेदी इतिहास उपलब्ध नाही. अचूक आकारासाठी विश्वास संवादमध्ये आपला सामान्य आकार, शरीराचा प्रकार किंवा छाती/कमरेचे मोजमाप सांगा.",
                     "gu": "આ ઉત્પાદન માટે હજી પૂરતો ખરીદીનો ઇતિહાસ ઉપલબ્ધ નથી. સાચી સાઈઝ જાણવા માટે વિશ્વાસ સંવાદમાં તમારી સામાન્ય સાઈઝ, શરીરનો પ્રકાર અથવા છાતી/કમરના માપ જણાવો."
                 }
                 actions = [
                     AgentAction(
-                        type="open_vishwas_samvad",
-                        label="विश्वास संवाद खोलें",
+                        type="open_vishwas_saathi",
+                        label="Open Vishwas Saathi",
                         payload={
                             "product_id": product["id"],
-                            "suggested_message": "मेरा सही साइज़ बताने में मदद करें।",
+                            "suggested_message": "Please help me find the right size.",
                             "prompts": ["normal size", "body type", "height", "measurements"]
                         }
                     )

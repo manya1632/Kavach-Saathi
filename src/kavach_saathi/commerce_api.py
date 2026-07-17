@@ -98,13 +98,36 @@ def validate_phone_with_lookup(phone: str, country: str | None, cfg: Settings) -
             "fixed-line-or-mobile",
         )
     )
-    if not is_valid:
+    if lookup_res.get("valid") is not True:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Phone number carrier lookup validation failed: "
-                f"valid={lookup_res.get('valid')}, country={lookup_res.get('country_code')}"
-            ),
+            detail={
+                "message": "Invalid phone number according to carrier validation.",
+                "errors": {"phone": "Invalid phone number according to carrier validation."}
+            }
+        )
+    if lookup_res.get("country_code", "").upper() != country_code.upper():
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": f"Phone number country code mismatch: expected {country_code}, got {lookup_res.get('country_code') or 'unknown'}.",
+                "errors": {"phone": f"Phone number country code mismatch: expected {country_code}, got {lookup_res.get('country_code') or 'unknown'}."}
+            }
+        )
+    valid_line_types = (
+        "mobile",
+        "voip",
+        "personal",
+        "fixed_line_or_mobile",
+        "fixed-line-or-mobile",
+    )
+    if lookup_res.get("line_type") not in valid_line_types:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": f"Unsupported line type: {lookup_res.get('line_type') or 'unknown'}.",
+                "errors": {"phone": f"Unsupported line type: {lookup_res.get('line_type') or 'unknown'}."}
+            }
         )
     return lookup_res
 
@@ -939,12 +962,34 @@ async def submit_return_image_attempt(
         _read_valid_return_image(item.delivery_front_image, cfg),
         _read_valid_return_image(item.delivery_back_image, cfg),
     )
-    front_score, back_score = await asyncio.gather(
-        asyncio.to_thread(_return_similarity, delivery_front, buyer_front),
-        asyncio.to_thread(_return_similarity, delivery_back, buyer_back),
-    )
+
+    from kavach_saathi.providers.return_provider import ReturnComparisonProvider
+
+    comparison_provider = ReturnComparisonProvider(cfg)
+    try:
+        front_res, back_res = await asyncio.gather(
+            comparison_provider.compare(
+                delivered_image_bytes=delivery_front,
+                returned_image_bytes=buyer_front,
+                comparison_type="front",
+            ),
+            comparison_provider.compare(
+                delivered_image_bytes=delivery_back,
+                returned_image_bytes=buyer_back,
+                comparison_type="back",
+            ),
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"message": "Image verification is temporarily unavailable. Please retry; this attempt was not counted.", "code": "provider_unavailable"},
+        ) from exc
+
+    front_score = front_res.visual_similarity_score
+    back_score = back_res.visual_similarity_score
     aggregate = round((front_score + back_score) / 2, 2)
-    passed = aggregate >= 60 and min(front_score, back_score) >= 40
+    passed = aggregate >= 60
+
     attempt = {
         "attempt": len(attempts) + 1,
         "created_at": datetime.now(UTC).isoformat(),
@@ -955,7 +1000,12 @@ async def submit_return_image_attempt(
         "similarity_front": front_score,
         "similarity_back": back_score,
         "similarity_aggregate": aggregate,
-        "model_version": "clip-vit-base-patch32+resnet50",
+        "front_provider": front_res.provider,
+        "front_model": front_res.model,
+        "back_provider": back_res.provider,
+        "back_model": back_res.model,
+        "front_differences": front_res.visible_differences,
+        "back_differences": back_res.visible_differences,
         "passed": passed,
     }
     attempts.append(attempt)
@@ -1004,12 +1054,20 @@ async def create_review(
     payload: ReviewCreateRequest,
     user: Annotated[User, Depends(_require_buyer)],
     session: Session = Depends(get_session),
+    container: Container = Depends(get_container),
 ):
     product = session.get(Product, payload.product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    # Check that the user has a delivered order containing this product
+    # Before validation: check text length and image requirements
+    trimmed_text = payload.text.strip() if payload.text else ""
+    if not trimmed_text or len(trimmed_text) < 10:
+        raise HTTPException(status_code=400, detail="Review text must be at least 10 characters long.")
+    if not payload.image_key or not payload.image_key.strip():
+        raise HTTPException(status_code=400, detail="Exactly one review image is required.")
+
+    # Check that the user has a confirmed delivered order containing this product
     POST_DELIVERY_STATUSES = {
         OrderStatus.DELIVERED,
         OrderStatus.RETURN_INITIATED,
@@ -1035,7 +1093,7 @@ async def create_review(
     )
     if not has_delivered_order:
         raise HTTPException(
-            status_code=403, detail="You can only review products you have purchased and had delivered."
+            status_code=400, detail="You can only review products you have purchased and had delivered."
         )
 
     # Check for duplicate review by the same buyer for this product
@@ -1047,6 +1105,49 @@ async def create_review(
     if duplicate:
         raise HTTPException(status_code=409, detail="You have already submitted a review for this product.")
 
+    # Fetch image bytes for verification
+    from kavach_saathi.media_storage import read_image_bytes
+    from kavach_saathi.providers.review_provider import ReviewVerificationProvider
+
+    try:
+        catalogue_bytes = await read_image_bytes(product.media_primary, container.settings)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Failed to load catalogue primary image: {exc}"
+        )
+
+    try:
+        review_image_bytes = await read_image_bytes(payload.image_key, container.settings)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Failed to load uploaded review image: {exc}"
+        )
+
+    provider = ReviewVerificationProvider(container.settings)
+    try:
+        res = await provider.verify(
+            catalogue_image_bytes=catalogue_bytes,
+            review_image_bytes=review_image_bytes,
+            product_title=product.title,
+            product_specs=json.dumps(product.spec_json or {}),
+            review_text=payload.text,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"message": "Review verification is temporarily unavailable. Please retry later.", "code": "provider_unavailable"},
+        ) from exc
+
+    if not res.overall_passed:
+        errors = {}
+        if not res.product_image_match_passed:
+            errors["image_key"] = "The uploaded image does not appear to show this product."
+        if not res.text_quality_passed:
+            errors["text"] = "Please replace unrelated, random, or incomplete text with your actual product experience."
+        if not res.image_text_match_passed:
+            errors["text"] = "Your text describes a different item than the uploaded image."
+        raise HTTPException(status_code=422, detail={"message": "Please correct the highlighted review fields.", "errors": errors})
+
     review_id = f"RV-{uuid4().hex[:10].upper()}"
     review = Review(
         id=review_id,
@@ -1057,16 +1158,25 @@ async def create_review(
         text=payload.text,
         media=payload.image_key,
         is_hidden_by_agent=False,
-        awaiting_analysis=True,
+        awaiting_analysis=False,
+        validation_provider=res.provider,
+        validation_model=res.model,
+        product_image_match_passed=res.product_image_match_passed,
+        product_image_match_confidence=res.product_image_match_confidence,
+        product_image_match_reason=res.product_image_match_reason,
+        image_text_match_passed=res.image_text_match_passed,
+        image_text_match_confidence=res.image_text_match_confidence,
+        image_text_match_reason=res.image_text_match_reason,
+        text_quality_passed=res.text_quality_passed,
+        text_quality_classification=res.text_quality_classification,
+        text_quality_reason=res.text_quality_reason,
+        overall_passed=res.overall_passed,
     )
     session.add(review)
 
     total_rating = product.rating * product.review_count + payload.rating
     product.review_count += 1
     product.rating = round(total_rating / product.review_count, 2)
-    # Commit before publishing -- see the matching comment in create_order() above;
-    # Agent 4's review-truth consumer can otherwise query this review before it's
-    # durably committed.
     session.commit()
 
     event_published = publish_event(

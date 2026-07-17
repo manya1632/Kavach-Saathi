@@ -609,7 +609,7 @@ _IRRELEVANT_REASONS = [
 ]
 
 
-def make_reviews(products: list[dict]) -> list[dict]:
+def make_reviews(products: list[dict]) -> tuple[list[dict], list[dict]]:
     """Random-but-deterministic review count per product (5-10) so bestsellers look
     busy and niche items look thin, like a real marketplace -- rather than every
     product having an identical, obviously-synthetic review count. ~28% of reviews
@@ -626,9 +626,19 @@ def make_reviews(products: list[dict]) -> list[dict]:
     same product more than once whenever a product's review count exceeded 10,
     violating that constraint on every single fresh seed (deterministically, not a
     flaky occasional collision, since this is seeded with a fixed RNG).
+
+    Returns (reviews, review_orders): `reviews.order_id` FKs into `orders.id` (a
+    "verified purchase" link added after this function was first written), and
+    since the 200 orders `make_orders()` generates are an independent random sample
+    unrelated to which (buyer, product) pairs get reviewed, there's no guarantee any
+    of them actually cover a given review -- every review gets its own dedicated,
+    already-delivered order here instead, inserted through the exact same
+    Order/OrderItem/OrderStatusHistory/Payment pipeline as `orders` (see
+    `seed_database()`).
     """
     rng = random.Random(SEED)
     records: list[dict] = []
+    review_orders: list[dict] = []
     for product in products:
         review_count = rng.randint(5, 10)
         buyer_ids = rng.sample(range(1, 11), review_count)
@@ -641,10 +651,26 @@ def make_reviews(products: list[dict]) -> list[dict]:
             has_media = rng.random() < 0.28
             relevant = True if not has_media else rng.random() > 0.12
             created_at = datetime.now(UTC) - timedelta(days=rng.randint(1, 540), hours=rng.randint(0, 23))
+            buyer_id = f"B-{buyer_index:03d}"
+            order_id = f"O-RV-{index:05d}"
+            review_orders.append(
+                {
+                    "id": order_id,
+                    "buyer_id": buyer_id,
+                    "product_id": product["id"],
+                    "seller_id": product["seller_id"],
+                    "status": "delivered",
+                    "size": "Standard",
+                    "fit_feedback": "good",
+                    "return_outcome": None,
+                    "order_value": product["price"],
+                }
+            )
             records.append(
                 {
                     "id": f"RV-{index:05d}",
-                    "buyer_id": f"B-{buyer_index:03d}",
+                    "order_id": order_id,
+                    "buyer_id": buyer_id,
                     "product_id": product["id"],
                     "rating": rating,
                     "text": text,
@@ -666,7 +692,9 @@ def make_reviews(products: list[dict]) -> list[dict]:
 
     # tests/test_api_workflows.py and scripts/evaluate_demo.py's golden path both
     # exercise a fixed RV-GOOD/RV-BAD pair on P-001 -- keep those two literal IDs and
-    # image paths stable regardless of the randomized generation above.
+    # image paths stable regardless of the randomized generation above. `.update()`
+    # only overwrites the given keys, so each record keeps the order_id already
+    # assigned to it above.
     p001_indices = [i for i, record in enumerate(records) if record["product_id"] == "P-001"]
     records[p001_indices[0]].update(
         {
@@ -686,7 +714,7 @@ def make_reviews(products: list[dict]) -> list[dict]:
             "relevance_reason": "photo shows unrelated packaging",
         }
     )
-    return records
+    return records, review_orders
 
 
 def make_addresses() -> list[dict]:
@@ -832,7 +860,7 @@ def seed_database() -> dict[str, int]:
     products = make_products()
     buyers = make_buyers()
     orders = make_orders(products)
-    reviews = make_reviews(products)
+    reviews, review_orders = make_reviews(products)
     _export_reviews_json(reviews)
     addresses = make_addresses()
     returns = make_returns(orders)
@@ -1021,7 +1049,7 @@ def seed_database() -> dict[str, int]:
 
         order_statuses: dict[str, OrderStatus] = {}
         order_variants: dict[str, str | None] = {}
-        for order in orders:
+        for order in orders + review_orders:
             status = ORDER_STATUS_MAP.get(order["status"], OrderStatus.PLACED)
             variant_id = f"{order['product_id']}-{order['size']}"
             if session.get(ProductVariant, variant_id) is None:
@@ -1043,7 +1071,7 @@ def seed_database() -> dict[str, int]:
             )
         session.flush()
 
-        for order in orders:
+        for order in orders + review_orders:
             status = order_statuses[order["id"]]
             session.add(
                 OrderItem(
@@ -1080,6 +1108,7 @@ def seed_database() -> dict[str, int]:
                     id=review["id"],
                     product_id=review["product_id"],
                     buyer_id=review["buyer_id"],
+                    order_id=review["order_id"],
                     rating=review["rating"],
                     text=review["text"],
                     media=review["media"],

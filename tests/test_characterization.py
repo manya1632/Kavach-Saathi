@@ -432,7 +432,9 @@ def test_whatsapp_reply_sid_routes_two_orders_on_the_same_phone():
 
 
 def test_delivery_boy_flow_and_reschedule():
-    from kavach_saathi.container import get_container
+    import asyncio
+
+    from kavach_saathi.delivery_api import list_assigned_deliveries
 
     session = SessionLocal()
     cleanup_entities(session)
@@ -477,16 +479,18 @@ def test_delivery_boy_flow_and_reschedule():
             id="O-CHAR-DEL-1",
             buyer_id=buyer.id,
             address_id=addr.id,
-            status="delivery_assigned",
-            delivery_boy_id=db_boy.id,
+            status=OrderStatus.DELIVERY_SCHEDULED,
             total_amount=150.0,
             payment_mode="cod",
         )
         session.add(order)
         session.commit()
 
-        container = get_container()
+        queue = asyncio.run(list_assigned_deliveries(user=db_boy, db=session))
+        assert any(row["order_id"] == order.id and row["queue_state"] == "pending" for row in queue)
+
         # Verify rescheduling directly
+        order.delivery_boy_id = db_boy.id
         order.promised_delivery_date = datetime.strptime("2026-07-20", "%Y-%m-%d").date()
         order.rescheduled_count = 1
         order.status = "delivery_rescheduled"

@@ -131,6 +131,7 @@ async def list_assigned_deliveries(
         .where(
             Order.status.in_(
                 [
+                    OrderStatus.DELIVERY_SCHEDULED,
                     OrderStatus.OUT_FOR_DELIVERY,
                     OrderStatus.DELIVERY_VERIFICATION_PENDING,
                     OrderStatus.DELIVERED,
@@ -219,6 +220,7 @@ async def send_delivery_otp(
 ):
     order = db.get(Order, order_id)
     if not order or order.status not in {
+        OrderStatus.DELIVERY_SCHEDULED,
         OrderStatus.OUT_FOR_DELIVERY,
         OrderStatus.DELIVERY_VERIFICATION_PENDING,
         "delivery_assigned",
@@ -258,6 +260,7 @@ async def upload_delivery_evidence(
 ):
     order = db.get(Order, order_id)
     if not order or order.status not in {
+        OrderStatus.DELIVERY_SCHEDULED,
         OrderStatus.OUT_FOR_DELIVERY,
         OrderStatus.DELIVERY_VERIFICATION_PENDING,
         "delivery_assigned",

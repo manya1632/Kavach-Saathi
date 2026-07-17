@@ -65,7 +65,6 @@ import {
   removeCartItem,
   removeWishlist,
   request,
-  saveAuthSession,
   signup,
   updateCartItem,
 } from "@/lib/api";
@@ -1800,10 +1799,6 @@ function AuthModal({ open, onClose, onAuthenticated }) {
           preferred_language: preferredLanguage,
           ...(role === "seller" ? { business_name: businessName } : {}),
         });
-      if (session.user.role !== "buyer") {
-        saveAuthSession(null);
-        throw new Error("That's a seller account — log in with a buyer account to shop here, or use the Seller Portal.");
-      }
       onAuthenticated(session);
     } catch (reason) {
       setError(reason.message || "That didn't work — please try again");
@@ -2034,7 +2029,8 @@ export default function Storefront({ initialProductId = null }) {
       // cart/checkout/wishlist -- previously this fell through to the API call,
       // which correctly 403'd with a raw "Insufficient role" string surfaced as a
       // confusing toast instead of prompting for the buyer login this action needs.
-      setToast("You're signed in with a seller account — log in with a buyer account to do that.");
+      const roleLabel = auth.user.role === "delivery_boy" ? "a delivery account" : `a ${auth.user.role} account`;
+      setToast(`You're signed in with ${roleLabel} — log in with a buyer account to do that.`);
     }
     setPendingAfterAuth(() => action);
     setAuthModalOpen(true);

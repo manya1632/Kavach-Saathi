@@ -270,12 +270,38 @@ def test_return_threshold_paths(client) -> None:
     extract_frames_target = "kavach_saathi.providers.return_vision.ReturnVisionVerifier.extract_frames"
     reasoner_target = "kavach_saathi.providers.reasoning.DemoReasoningProvider.structured"
 
+    # /v1/returns/analyze writes a real ReturnRecord and stamps the order's status
+    # (repository.py's record_return_decision) -- using the shared O-GOLDEN fixture
+    # for the "approve" case used to mutate it (status -> RETURN_APPROVED), breaking
+    # other tests that assume O-GOLDEN stays "delivered" with its single seeded
+    # RT-GOLDEN return. A dedicated, isolated delivered order avoids that.
+    import uuid
+
+    from kavach_saathi.db.base import SessionLocal
+    from kavach_saathi.db.models import Order, OrderItem
+    from kavach_saathi.order_status import OrderStatus
     from kavach_saathi.providers.spec_ocr import ExtractedSpec
+
+    approve_order_id = f"O-RETTEST-{uuid.uuid4().hex[:10].upper()}"
+    with SessionLocal() as session:
+        session.add(
+            Order(
+                id=approve_order_id, buyer_id="B-001", status=OrderStatus.DELIVERED,
+                total_amount=349.0, payment_mode="cod",
+            )
+        )
+        session.add(
+            OrderItem(
+                order_id=approve_order_id, product_id="P-001", product_variant_id=None,
+                seller_id="S-001", size="M", qty=1, price_at_purchase=349.0,
+            )
+        )
+        session.commit()
 
     # ReturnAnalyzeRequest now also requires product_id (models.py) -- matching each
     # order's seeded product (data/seed/orders.json) rather than assuming P-001 for all.
     cases = (
-        ("O-GOLDEN", "P-001", 0.95, True, "completed", "approve"),
+        (approve_order_id, "P-001", 0.95, True, "completed", "approve"),
         ("O-002", "P-011", 0.55, False, "needs_evidence", "request_more_evidence"),
         ("O-003", "P-021", 0.10, False, "manual_review", "manual_inspection"),
     )

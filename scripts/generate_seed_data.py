@@ -1161,6 +1161,7 @@ def seed_database() -> dict[str, int]:
                 ReturnRecord(
                     id=ret["id"],
                     order_id=ret["order_id"],
+                    product_id=order["product_id"],
                     buyer_id=order["buyer_id"],
                     video_url=ret["video"],
                     confidence_score=None,

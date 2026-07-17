@@ -70,3 +70,14 @@ def test_listing_analyze_persists_real_agent_logs_and_product_images(client, moc
         assert log.latency_ms >= 0
         assert log.provider == "nano_banana_2"
         assert log.output_json["generated_views"] == fake_views
+
+        # save_generated_images() (repository.py) points product.media_primary at the
+        # generated front view once it exists -- correct behavior for a real run, but
+        # `fake_views` above are mocked keys that were never actually written to disk
+        # (the real CatalogueImageGenerator.generate() call, which would write them
+        # via write_generated_image(), is entirely bypassed here). Left as-is,
+        # media_primary stays pointed at a file that doesn't exist for the rest of this
+        # session-scoped test run, breaking any later test that reads P-001's primary
+        # image (the `client` fixture shares one DB across the whole pytest session).
+        product.media_primary = "assets/mock/products/P-001.png"
+        session.commit()

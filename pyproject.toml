@@ -64,6 +64,12 @@ asyncio_mode = "auto"
 [tool.ruff]
 line-length = 120
 target-version = "py311"
+# Alembic-generated migration files use its own boilerplate template (typing.Union,
+# unsorted stdlib/third-party import order) that predates this project's ruff ruleset
+# -- they're generated code, not hand-written, so hold them to Alembic's own
+# conventions rather than repeatedly hand-fixing each new migration's header just to
+# satisfy UP035/UP007/I001.
+exclude = ["migrations"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

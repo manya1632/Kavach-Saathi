@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 
 from kavach_saathi.agent_logging import log_agent_call
@@ -60,12 +61,28 @@ class CatalogueTruthAgent(Agent):
         # review" instead of propagating up and failing the entire graph.
         image_gen_error: str | None = None
         try:
+            # 4 sequential views, each its own network round-trip through the
+            # FASHN/Nano-Banana/Hugging-Face cascade, can genuinely take a bit over
+            # 2 minutes on an ordinary run (observed live: 126s against this
+            # function's old 120s budget) -- raised to give real, working provider
+            # calls enough headroom instead of getting cut off by a few seconds and
+            # falling all the way through to "pending admin review".
             generated = await asyncio.wait_for(
-                self.context.media.generate_catalog_views(request.image_keys, product), timeout=120
+                self.context.media.generate_catalog_views(request.image_keys, product), timeout=240
             )
             self.context.repository.save_generated_images(product["id"], generated)
         except Exception as exc:  # noqa: BLE001 - any image-gen failure degrades gracefully, never crashes the run
-            image_gen_error = str(exc)
+            # `str(exc)` is empty for some exception types (notably a bare
+            # asyncio.TimeoutError from wait_for above) -- falling back to the
+            # exception's class name keeps `image_gen_error` truthy whenever an
+            # exception genuinely occurred, so the status/summary logic below (which
+            # branches on `if image_gen_error`) can't silently mistake "timed out
+            # with no message" for "no error, generation actually succeeded" while
+            # `generated` is empty.
+            image_gen_error = str(exc) or f"{type(exc).__name__} (no error message)"
+            logging.getLogger(__name__).warning(
+                "Agent 1 image generation failed for product %s: %s", product["id"], image_gen_error, exc_info=True
+            )
             generated = []
 
         # Honest degrade: with no stolen-photo check actually run, this can only ever

@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -666,16 +666,21 @@ async def payment_status(
 
 
 @router.get("/orders")
-async def list_my_orders(user: Annotated[User, Depends(_require_buyer)], session: Session = Depends(get_session)):
-    orders = (
-        session.execute(
-            select(Order)
-            .where(Order.buyer_id == user.id, Order.status != OrderStatus.CART)
-            .order_by(Order.created_at.desc())
-        )
-        .scalars()
-        .all()
+async def list_my_orders(
+    user: Annotated[User, Depends(_require_buyer)],
+    session: Session = Depends(get_session),
+    limit: Annotated[int | None, Query(ge=1, le=500)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
+):
+    statement = (
+        select(Order)
+        .where(Order.buyer_id == user.id, Order.status != OrderStatus.CART)
+        .order_by(Order.created_at.desc())
+        .offset(offset)
     )
+    if limit is not None:
+        statement = statement.limit(limit)
+    orders = session.execute(statement).scalars().all()
     order_ids = [o.id for o in orders]
     items_by_order: dict[str, list[OrderItem]] = {}
     if order_ids:
@@ -781,14 +786,18 @@ async def submit_fit_feedback(
 async def list_my_returns(
     user: Annotated[User, Depends(_require_buyer)],
     session: Session = Depends(get_session),
+    limit: Annotated[int | None, Query(ge=1, le=500)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
-    rows = (
-        session.execute(
-            select(ReturnRecord).where(ReturnRecord.buyer_id == user.id).order_by(ReturnRecord.created_at.desc())
-        )
-        .scalars()
-        .all()
+    statement = (
+        select(ReturnRecord)
+        .where(ReturnRecord.buyer_id == user.id)
+        .order_by(ReturnRecord.created_at.desc())
+        .offset(offset)
     )
+    if limit is not None:
+        statement = statement.limit(limit)
+    rows = session.execute(statement).scalars().all()
     return [
         {
             "id": row.id,

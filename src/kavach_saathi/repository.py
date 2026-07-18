@@ -4,7 +4,7 @@ import hashlib
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.orm import Session
 
 from kavach_saathi.db.base import SessionLocal
@@ -27,6 +27,47 @@ from kavach_saathi.db.models import (
 
 class DataNotFoundError(KeyError):
     pass
+
+
+_PRODUCT_EXACT_SEARCH_SQL = text(
+    """
+    SELECT id
+    FROM products
+    WHERE status = 'active'
+      AND (
+        id ILIKE :pattern
+        OR name ILIKE :pattern
+        OR category ILIKE :pattern
+        OR COALESCE(brand, '') ILIKE :pattern
+        OR COALESCE(material, '') ILIKE :pattern
+        OR COALESCE(occasion, '') ILIKE :pattern
+        OR to_tsvector(
+            'simple',
+            COALESCE(name, '') || ' ' || COALESCE(brand, '') || ' ' ||
+            COALESCE(category, '') || ' ' || COALESCE(material, '') || ' ' ||
+            COALESCE(occasion, '') || ' ' || COALESCE(description, '')
+        ) @@ websearch_to_tsquery('simple', :query)
+      )
+    LIMIT :candidate_limit
+    """
+)
+
+_PRODUCT_FUZZY_SEARCH_SQL = text(
+    """
+    SELECT id
+    FROM products
+    WHERE status = 'active'
+      AND (
+        word_similarity(:query, COALESCE(name, '')) >= :threshold
+        OR word_similarity(:query, COALESCE(brand, '')) >= :threshold
+      )
+    ORDER BY GREATEST(
+        word_similarity(:query, COALESCE(name, '')),
+        word_similarity(:query, COALESCE(brand, ''))
+    ) DESC
+    LIMIT :candidate_limit
+    """
+)
 
 
 def _seller_dict(profile: SellerProfile) -> dict[str, Any]:
@@ -344,6 +385,29 @@ class CommerceRepository:
                 rows = session.execute(select(ReturnRecord).order_by(ReturnRecord.id)).scalars()
                 return [_return_dict(r) for r in rows]
             return []
+
+    def search_product_ids(self, query: str, *, threshold: float = 0.25, limit: int = 1000) -> set[str]:
+        """Search the authoritative catalogue while leaving response shaping to the API."""
+        normalized = query.strip()
+        if not normalized:
+            return set()
+        with self._session() as session:
+            rows = session.execute(
+                _PRODUCT_EXACT_SEARCH_SQL,
+                {
+                    "query": normalized,
+                    "pattern": f"%{normalized}%",
+                    "candidate_limit": limit,
+                },
+            )
+            exact = {str(row[0]) for row in rows}
+            if exact:
+                return exact
+            fuzzy_rows = session.execute(
+                _PRODUCT_FUZZY_SEARCH_SQL,
+                {"query": normalized, "threshold": threshold, "candidate_limit": limit},
+            )
+            return {str(row[0]) for row in fuzzy_rows}
 
     def buyer_orders(self, buyer_id: str) -> list[dict[str, Any]]:
         with self._session() as session:

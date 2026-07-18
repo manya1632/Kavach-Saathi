@@ -8,6 +8,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 os.environ["REASONING_MODE"] = "demo"
+# Keep test stream consumers, idempotency keys, caches, and rate counters isolated
+# from the running Compose worker on Redis DB 0. Without this, either consumer can
+# legitimately claim the same test event and make mocked integration tests race.
+os.environ["REDIS_URL"] = "redis://localhost:6379/15"
 # Tests must be deterministic regardless of ambient credentials. pydantic-settings reads
 # .env directly (in addition to the OS environment), so a real key sitting in the repo's
 # .env file -- which is exactly what a developer's local .env is expected to contain
@@ -39,6 +43,16 @@ for _key in (
     os.environ[_key] = ""
 
 from kavach_saathi.app import app  # noqa: E402
+
+
+@pytest.fixture(scope="session", autouse=True)
+def isolated_test_redis():
+    from redis import Redis
+
+    client = Redis.from_url(os.environ["REDIS_URL"])
+    client.flushdb()
+    yield
+    client.flushdb()
 
 
 @pytest.fixture(scope="session")

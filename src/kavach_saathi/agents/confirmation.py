@@ -12,7 +12,7 @@ from kavach_saathi.agent_logging import log_agent_call
 from kavach_saathi.agents.base import Agent
 from kavach_saathi.config import get_settings
 from kavach_saathi.db.base import SessionLocal
-from kavach_saathi.media_storage import write_generated_image
+from kavach_saathi.media_storage import media_url, stored_object_size, write_generated_image
 from kavach_saathi.models import AgentAction, AgentName, AgentResult, Evidence
 from kavach_saathi.providers.reasoning import ReasoningUnavailable
 from kavach_saathi.providers.sarvam import SarvamClient, SarvamUnavailable
@@ -100,10 +100,14 @@ class DeliveryConfirmationAgent(Agent):
         question = _QUESTION_HI if language == "hi" else _QUESTION_EN
         if settings.public_base_url:
             key = self._prompt_audio_key(order_id)
-            local_path = settings.asset_dir / key.removeprefix("assets/mock/")
-            if local_path.exists():
-                audio_url = f"{settings.public_base_url}/mock-assets/{key.removeprefix('assets/mock/')}"
+            try:
+                stored_object_size(key, settings)
+                audio_url = media_url(key, settings)
+                if audio_url and audio_url.startswith("/"):
+                    audio_url = f"{settings.public_base_url.rstrip('/')}{audio_url}"
                 return f"<Play>{audio_url}</Play>"
+            except (FileNotFoundError, OSError):
+                pass
         lang_tag = "hi-IN" if language == "hi" else "en-IN"
         return f'<Say language="{lang_tag}" voice="Polly.Aditi">{question}</Say>'
 

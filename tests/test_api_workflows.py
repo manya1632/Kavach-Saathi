@@ -39,6 +39,16 @@ def test_storefront_catalogue_uses_seed_products(client) -> None:
     assert body["items"][0]["presentation"]["why_it_wins"]
 
 
+def test_storefront_postgres_search_supports_product_codes_and_typos(client) -> None:
+    by_code = client.get("/v1/storefront/products", params={"q": "P-001"})
+    assert by_code.status_code == 200
+    assert any(item["id"] == "P-001" for item in by_code.json()["items"])
+
+    fuzzy = client.get("/v1/storefront/products", params={"q": "Maron"})
+    assert fuzzy.status_code == 200
+    assert any("Maroon" in item["name"] for item in fuzzy.json()["items"])
+
+
 def test_storefront_exposes_all_500_products_in_presentation_order(client) -> None:
     body = client.get("/v1/storefront/products").json()
     # >= not == : the seller portal (Sub-phase 2) lets real sellers add listings beyond

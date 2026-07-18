@@ -22,9 +22,47 @@ class Settings(BaseSettings):
     frontend_origin: str = "http://localhost:3000"
     data_dir: Path = Path("data/seed")
     asset_dir: Path = Path("assets/mock")
+    media_storage_backend: Literal["auto", "local", "s3"] = "auto"
+    media_endpoint_url: str | None = None
+    media_access_key_id: str | None = None
+    media_secret_access_key: str | None = None
+    media_public_base_url: str | None = None
+    media_local_read_fallback: bool = True
+    media_presign_expiry_seconds: int = Field(default=900, ge=60, le=86400)
+    catalogue_postgres_search_enabled: bool = True
+    catalogue_fuzzy_search_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
+    catalogue_search_candidate_limit: int = Field(default=1000, ge=50, le=10_000)
 
     database_url: str = "postgresql+psycopg://kavach:kavach@localhost:5432/kavach_saathi"
+    database_read_url: str | None = None
+    database_ssl_mode: Literal["disable", "allow", "prefer", "require", "verify-ca", "verify-full"] | None = None
+    database_connect_timeout_seconds: int = Field(default=10, ge=1, le=120)
+    database_statement_timeout_ms: int = Field(default=0, ge=0, le=600_000)
+    database_application_name: str = "kavach-saathi"
+    database_read_pool_size: int = Field(default=5, ge=1, le=100)
+    require_read_database_ready: bool = False
     redis_url: str = "redis://localhost:6379/0"
+    redis_cache_url: str | None = None
+    redis_stream_url: str | None = None
+    database_pool_size: int = Field(default=10, ge=1, le=100)
+    database_max_overflow: int = Field(default=20, ge=0, le=200)
+    database_pool_timeout_seconds: int = Field(default=30, ge=1, le=120)
+    database_pool_recycle_seconds: int = Field(default=1800, ge=60, le=86400)
+    redis_max_connections: int = Field(default=50, ge=5, le=1000)
+    redis_socket_timeout_seconds: float = Field(default=5.0, ge=3.0, le=30)
+    redis_socket_connect_timeout_seconds: float = Field(default=5.0, ge=1.0, le=30)
+    redis_retry_on_timeout: bool = True
+
+    # Fixed-window limits protect only abuse-sensitive write endpoints. They fail
+    # open when Redis is unavailable so a cache outage cannot take commerce down.
+    rate_limit_enabled: bool = True
+    rate_limit_window_seconds: int = Field(default=60, ge=10, le=3600)
+    run_event_consumers_in_web: bool = True
+    run_workflows_in_web: bool = True
+    deployment_environment: str = "local"
+    release_version: str = "development"
+    require_worker_ready: bool = False
+    worker_heartbeat_ttl_seconds: int = Field(default=15, ge=6, le=120)
 
     jwt_secret: str = "dev-only-insecure-secret-change-me"
     jwt_algorithm: str = "HS256"
@@ -128,6 +166,12 @@ class Settings(BaseSettings):
     @property
     def uses_gemini_reasoning(self) -> bool:
         return bool(self.gemini_api_key)
+
+    @property
+    def uses_object_storage(self) -> bool:
+        return self.media_storage_backend == "s3" or (
+            self.media_storage_backend == "auto" and self.is_live
+        )
 
     @property
     def model_templates(self) -> list[str]:

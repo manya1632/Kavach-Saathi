@@ -11,10 +11,10 @@ from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from mangum import Mangum
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from kavach_saathi.admin_api import router as admin_router
@@ -27,13 +27,15 @@ from kavach_saathi.auth import (
     rotate_refresh_token,
     signup_user,
 )
+from kavach_saathi.catalog_cache import get_catalogue_cache, set_catalogue_cache
 from kavach_saathi.commerce_api import router as commerce_router
 from kavach_saathi.config import Settings, get_settings
 from kavach_saathi.container import Container, get_container
-from kavach_saathi.db.base import get_session
+from kavach_saathi.db.base import get_engine, get_read_engine, get_session
 from kavach_saathi.db.models import Order, OrderItem, OrderStatusHistory, Payment, ProductVariant, User
 from kavach_saathi.delivery_api import router as delivery_router
-from kavach_saathi.events import start_order_consumer, start_review_consumer
+from kavach_saathi.events import enqueue_workflow, start_order_consumer, start_review_consumer
+from kavach_saathi.media_storage import create_presigned_upload, media_url
 from kavach_saathi.models import (
     AddressVerifyRequest,
     AuthUser,
@@ -56,6 +58,7 @@ from kavach_saathi.models import (
     VoiceQueryRequest,
     WorkflowType,
 )
+from kavach_saathi.operational import operational_middleware, request_metrics
 from kavach_saathi.orchestration.service import RunNotFoundError
 from kavach_saathi.order_status import OrderStatus
 from kavach_saathi.providers.twilio_integration import TwilioIntegrationClient
@@ -138,6 +141,11 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def request_operations(request: Request, call_next):
+        return await operational_middleware(request, call_next, settings)
+
     if settings.asset_dir.exists():
         app.mount("/mock-assets", StaticFiles(directory=settings.asset_dir), name="mock-assets")
 
@@ -167,6 +175,57 @@ def create_app() -> FastAPI:
                 "reasoning_model": cfg.groq_model if cfg.uses_groq else "fixture-rules",
                 **summary,
             },
+        )
+
+    @app.get("/live", include_in_schema=False)
+    async def liveness():
+        """Process-only probe; dependency failures belong to /ready."""
+        return {"status": "ok"}
+
+    @app.get("/ready", response_model=HealthResponse)
+    async def readiness(cfg: Settings = Depends(get_settings)):
+        """Dependency-aware readiness probe used before routing traffic here."""
+        checks: dict[str, bool | int | str] = {"database": False, "redis": False}
+        try:
+            with get_engine().connect() as connection:
+                connection.execute(text("SELECT 1"))
+            checks["database"] = True
+        except Exception:
+            logger.warning("Database readiness check failed", exc_info=True)
+        if cfg.database_read_url:
+            try:
+                with get_read_engine().connect() as connection:
+                    connection.execute(text("SELECT 1"))
+                checks["read_database"] = True
+            except Exception:
+                checks["read_database"] = False
+                logger.warning("Read-database readiness check failed", exc_info=True)
+        try:
+            redis = get_redis()
+            checks["redis"] = bool(redis.ping())
+            if cfg.require_worker_ready:
+                checks["worker"] = bool(redis.get("workers:event:heartbeat"))
+        except Exception:
+            logger.warning("Redis readiness check failed", exc_info=True)
+        ready = bool(
+            checks["database"]
+            and checks["redis"]
+            and (not cfg.require_worker_ready or checks.get("worker"))
+            and (not cfg.require_read_database_ready or checks.get("read_database"))
+        )
+        payload = HealthResponse(status="ok" if ready else "degraded", mode=cfg.app_mode, checks=checks)
+        if ready:
+            return payload
+        return Response(content=payload.model_dump_json(), status_code=503, media_type="application/json")
+
+    @app.get("/metrics", include_in_schema=False)
+    async def operational_metrics():
+        return request_metrics.snapshot()
+
+    @app.get("/metrics/prometheus", include_in_schema=False, response_class=PlainTextResponse)
+    async def prometheus_metrics(cfg: Settings = Depends(get_settings)):
+        return request_metrics.prometheus(
+            labels={"environment": cfg.deployment_environment, "release": cfg.release_version}
         )
 
     prefix = settings.api_prefix
@@ -257,10 +316,11 @@ def create_app() -> FastAPI:
         # event -- the real trigger path replacing the old manual "Check review truth"
         # button (gap_report B4/Y2's event-driven requirement).
         container = get_container()
-        start_review_consumer(container)
-        # Automatically invokes the real outbound WhatsApp confirmation on every
-        # `order.placed` event (gap_report B1).
-        start_order_consumer(container)
+        if container.settings.run_event_consumers_in_web:
+            start_review_consumer(container)
+            # Automatically invokes the real outbound WhatsApp confirmation on every
+            # `order.placed` event (gap_report B1).
+            start_order_consumer(container)
 
         if container.settings.warm_up_on_startup:
             import asyncio
@@ -336,7 +396,7 @@ def create_app() -> FastAPI:
         include_gallery: bool = True,
     ) -> dict:
         seller = seller or container.repository.get("sellers", product["seller_id"])
-        media_path = product["media"]["primary"].removeprefix("assets/mock/")
+        media_path = product["media"]["primary"]
         original_price = product["original_price"]
         # A just-initialized, not-yet-published draft has price=original_price=0.0
         # until the seller fills in pricing on the Finalize screen -- dividing by
@@ -384,18 +444,18 @@ def create_app() -> FastAPI:
             "extraction_results": product.get("extraction_results"),
             "size_chart": product["size_chart"],
             "return_window_days": product["return_window_days"],
-            "image_url": f"/mock-assets/{media_path}",
+            "image_url": media_url(media_path, container.settings),
             "catalogue_images": [
                 {
                     "angle": image["angle"],
-                    "url": f"/mock-assets/{image['url'].removeprefix('assets/mock/')}",
+                    "url": media_url(image["url"], container.settings),
                     "verified": image["verified"],
                 }
                 for image in (container.repository.product_images(product["id"]) if include_gallery else [])
             ]
             or (
                 [
-                    {"angle": angle, "url": f"/mock-assets/{media_path}", "verified": False}
+                    {"angle": angle, "url": media_url(media_path, container.settings), "verified": False}
                     for angle in ("front", "back", "left", "right")
                 ]
                 if include_gallery
@@ -407,9 +467,13 @@ def create_app() -> FastAPI:
     async def storefront_products(
         q: str | None = None,
         category: str | None = None,
-        limit: int = Query(default=500, ge=1, le=500),
+        limit: Annotated[int, Query(ge=1, le=500)] = 500,
+        offset: Annotated[int, Query(ge=0)] = 0,
         container: Container = Depends(get_container),
     ):
+        cached = get_catalogue_cache("products", q or "", category or "", limit, offset)
+        if cached is not None:
+            return cached
         products = container.repository.list("products")
         # Filter out non-active products
         products = [product for product in products if product.get("status") == "active"]
@@ -439,17 +503,34 @@ def create_app() -> FastAPI:
 
         if q:
             term = q.casefold()
+            matching_ids: set[str] | None = None
+            if settings.catalogue_postgres_search_enabled:
+                try:
+                    matching_ids = container.repository.search_product_ids(
+                        q,
+                        threshold=settings.catalogue_fuzzy_search_threshold,
+                        limit=settings.catalogue_search_candidate_limit,
+                    )
+                except Exception:
+                    # Search is derived from the catalogue. A migration/provider
+                    # problem must never make the storefront unavailable.
+                    logger.warning("PostgreSQL catalogue search failed; using compatibility search", exc_info=True)
             products = [
                 product
                 for product in products
-                if any(
-                    term in str(value).casefold()
-                    for value in (
-                        product["name"],
-                        product["category"],
-                        product.get("brand", ""),
-                        product.get("material", ""),
-                        product.get("occasion", ""),
+                if (
+                    product["id"] in matching_ids
+                    if matching_ids is not None
+                    else any(
+                        term in str(value).casefold()
+                        for value in (
+                            product["id"],
+                            product["name"],
+                            product["category"],
+                            product.get("brand", ""),
+                            product.get("material", ""),
+                            product.get("occasion", ""),
+                        )
                     )
                 )
             ]
@@ -457,7 +538,7 @@ def create_app() -> FastAPI:
             products = [product for product in products if product["category"] == category]
         sellers = {seller["id"]: seller for seller in container.repository.list("sellers")}
         active_categories = {product["category"] for product in products}
-        return {
+        result = {
             "items": [
                 storefront_product(
                     product,
@@ -465,19 +546,28 @@ def create_app() -> FastAPI:
                     seller=sellers.get(product["seller_id"]),
                     include_gallery=False,
                 )
-                for product in products[:limit]
+                for product in products[offset : offset + limit]
             ],
             "total": len(products),
             "categories": [item for item in STOREFRONT_CATEGORIES if item in active_categories],
         }
+        set_catalogue_cache(result, "products", q or "", category or "", limit, offset)
+        return result
 
     @app.get(f"{prefix}/storefront/products/{{product_id}}")
     async def storefront_product_detail(product_id: str, container: Container = Depends(get_container)):
+        cached = get_catalogue_cache("product-detail", product_id)
+        if cached is not None:
+            return cached
         product = container.repository.get("products", product_id)
         result = storefront_product(product, container)
         result["specifications"] = _fill_default_spec_rows(container.repository.product_specifications(product_id))
         result["reviews"] = container.repository.product_reviews(product_id)
+        for review in result["reviews"]:
+            if review.get("media"):
+                review["media"] = media_url(review["media"], container.settings)
         result["review_report"] = container.repository.review_report(product_id)
+        set_catalogue_cache(result, "product-detail", product_id, ttl_seconds=30)
         return result
 
     @app.get(f"{prefix}/storefront/products/{{product_id}}/similar")
@@ -487,6 +577,9 @@ def create_app() -> FastAPI:
         from datetime import UTC as _UTC
         from datetime import datetime
 
+        cached = get_catalogue_cache("similar-products", product_id)
+        if cached is not None:
+            return cached
         product = container.repository.get("products", product_id)
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
@@ -536,7 +629,9 @@ def create_app() -> FastAPI:
             return ts
 
         candidates.sort(key=lambda p: (get_similarity_score(p), _activation_ts(p)), reverse=True)
-        return {"items": [storefront_product(p, container) for p in candidates[:8]]}
+        result = {"items": [storefront_product(p, container) for p in candidates[:8]]}
+        set_catalogue_cache(result, "similar-products", product_id, ttl_seconds=30)
+        return result
 
     async def run(
         workflow: WorkflowType,
@@ -574,12 +669,17 @@ def create_app() -> FastAPI:
                         }
                     ),
                 )
-            else:
+            elif settings.run_workflows_in_web:
                 # Self-hosted async execution (no Step Functions configured). Agents
                 # 1/2/4/8 can take real minutes now that they call real models, so this
                 # must never block the request -- callers poll GET /runs/{run_id} or the
                 # SSE event stream, per the plan's API design ("frontend must show
                 # honest loading/progress states, never fake instant AI magic").
+                _run_workflow_in_background(lambda: container.service.resume(record.run_id, order_id=order_id))
+            elif not enqueue_workflow(record.run_id, order_id=order_id):
+                # Redis outages must not strand a durable queued run. The isolated
+                # worker is preferred, but the existing in-process path remains an
+                # availability fallback with identical workflow semantics.
                 _run_workflow_in_background(lambda: container.service.resume(record.run_id, order_id=order_id))
             return container.service.envelope(record)
         record = await container.service.execute(
@@ -820,18 +920,8 @@ def create_app() -> FastAPI:
     ) -> PresignResponse:
         suffix = Path(payload.filename).suffix.lower()
         key = f"uploads/{payload.kind}/{uuid4()}{suffix}"
-        if cfg.is_live:
-            import boto3
-
-            url = boto3.client("s3", region_name=cfg.aws_region).generate_presigned_url(
-                "put_object",
-                Params={
-                    "Bucket": cfg.media_bucket,
-                    "Key": key,
-                    "ContentType": payload.content_type,
-                },
-                ExpiresIn=900,
-            )
+        if cfg.uses_object_storage:
+            url = create_presigned_upload(key, payload.content_type, cfg)
         else:
             # A relative path through the Next.js rewrite (see web/next.config.mjs's
             # `/agent-api/:path*` rule) keeps this same-origin from the browser's point
@@ -843,7 +933,7 @@ def create_app() -> FastAPI:
             # tunnel, which fails with "Failed to fetch" whenever the tunnel isn't the
             # thing serving the page (e.g. testing directly against localhost).
             url = f"/agent-api{prefix}/mock-uploads/{key}"
-        return PresignResponse(object_key=key, upload_url=url, expires_in=900)
+        return PresignResponse(object_key=key, upload_url=url, expires_in=cfg.media_presign_expiry_seconds)
 
     @app.post(f"{prefix}/twilio/voice/{{order_id}}")
     async def twilio_voice(order_id: str, container: Container = Depends(get_container)):
@@ -1043,7 +1133,7 @@ def create_app() -> FastAPI:
         request: Request,
         cfg: Settings = Depends(get_settings),
     ):
-        if cfg.is_live:
+        if cfg.uses_object_storage:
             raise HTTPException(status_code=404)
         destination = (cfg.asset_dir / object_key).resolve()
         root = cfg.asset_dir.resolve()

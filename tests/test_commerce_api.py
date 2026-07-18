@@ -206,7 +206,8 @@ def test_cod_order_publishes_event_and_triggers_agent7(client) -> None:
             _time.sleep(0.1)
 
     assert state == "ownership_prompt_sent"
-    send_mock.assert_called_once()
+    calls_for_this_order = [call for call in send_mock.call_args_list if call.args[2] == {"1": order_id}]
+    assert len(calls_for_this_order) == 1
 
 
 def test_order_creation_prepaid_without_razorpay_fails_honestly(client) -> None:

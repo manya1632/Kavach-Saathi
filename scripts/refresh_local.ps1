@@ -23,13 +23,14 @@ function Invoke-Checked {
 
 Write-Host "Starting existing Kavach Saathi images (no build)..." -ForegroundColor Cyan
 Invoke-Checked {
-    docker compose -p $projectName up -d --no-build postgres redis backend frontend
+    docker compose -p $projectName up -d --no-build postgres redis backend worker frontend
 } "Could not start the existing Docker images. Run a normal build once if an image is missing."
 
 $backendId = (docker compose -p $projectName ps -q backend).Trim()
+$workerId = (docker compose -p $projectName ps -q worker).Trim()
 $frontendId = (docker compose -p $projectName ps -q frontend).Trim()
-if (-not $backendId -or -not $frontendId) {
-    throw "Backend or frontend container is unavailable. Check Docker Desktop and docker compose ps."
+if (-not $backendId -or -not $workerId -or -not $frontendId) {
+    throw "Backend, worker, or frontend container is unavailable. Check Docker Desktop and docker compose ps."
 }
 
 Write-Host "Copying backend source into the existing container..." -ForegroundColor Cyan
@@ -38,6 +39,11 @@ Invoke-Checked { docker cp (Join-Path $projectRoot "data\.") "${backendId}:/app/
 Invoke-Checked { docker cp (Join-Path $projectRoot "migrations\.") "${backendId}:/app/migrations" } "Could not copy migrations."
 Invoke-Checked { docker cp (Join-Path $projectRoot "scripts\.") "${backendId}:/app/scripts" } "Could not copy backend scripts."
 Invoke-Checked { docker cp (Join-Path $projectRoot "alembic.ini") "${backendId}:/app/alembic.ini" } "Could not copy Alembic configuration."
+
+Write-Host "Copying backend source into the worker container..." -ForegroundColor Cyan
+Invoke-Checked { docker cp (Join-Path $projectRoot "src\.") "${workerId}:/app/src" } "Could not copy worker source."
+Invoke-Checked { docker cp (Join-Path $projectRoot "data\.") "${workerId}:/app/data" } "Could not copy worker data."
+Invoke-Checked { docker cp (Join-Path $projectRoot "alembic.ini") "${workerId}:/app/alembic.ini" } "Could not copy worker configuration."
 
 Write-Host "Applying database migrations..." -ForegroundColor Cyan
 Invoke-Checked {
@@ -51,7 +57,7 @@ Invoke-Checked { docker cp (Join-Path $projectRoot "web\lib\.") "${frontendId}:/
 Invoke-Checked { docker cp (Join-Path $projectRoot "web\next.config.mjs") "${frontendId}:/app/next.config.mjs" } "Could not copy Next.js configuration."
 
 Write-Host "Restarting application containers..." -ForegroundColor Cyan
-Invoke-Checked { docker restart $backendId $frontendId | Out-Null } "Could not restart the application containers."
+Invoke-Checked { docker restart $backendId $workerId $frontendId | Out-Null } "Could not restart the application containers."
 
 $deadline = (Get-Date).AddMinutes(3)
 do {

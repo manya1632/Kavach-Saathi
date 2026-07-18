@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -94,8 +95,12 @@ def test_all_seed_media_references_exist() -> None:
     root = Path(".")
     repository = CommerceRepository()
     products = _seeded_products(repository)
-    reviews = repository.list("reviews")
-    returns = repository.list("returns")
+    # This test validates the checked-in seed manifest, not every persistent row.
+    # Real users and older local seed versions can legitimately leave additional
+    # review/return rows whose uploaded media is external or no longer in the current
+    # fixture set.
+    reviews = json.loads(Path("data/seed/reviews.json").read_text(encoding="utf-8"))
+    returns = json.loads(Path("data/seed/returns.json").read_text(encoding="utf-8"))
 
     for product in products:
         assert (root / product["media"]["primary"]).exists()

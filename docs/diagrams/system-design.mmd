@@ -1,0 +1,105 @@
+%% Editable Mermaid source for docs/diagrams/system-design.svg
+flowchart TB
+    subgraph Clients[Client layer]
+        Buyer[Buyer web app]
+        Seller[Seller portal]
+        Delivery[Delivery portal]
+        Admin[Admin console]
+    end
+    subgraph Edge[Web and edge layer]
+        Next[Next.js 16 application]
+        Proxy[/agent-api reverse proxy/]
+        Static[Local assets or CDN]
+    end
+    Buyer & Seller & Delivery & Admin --> Next
+    Next --> Proxy
+    Next --> Static
+
+    subgraph Api[FastAPI application layer]
+        Middleware[Request ID, logs and rate limits]
+        AuthApi[JWT authentication and roles]
+        CommerceApi[Catalogue, cart, checkout, orders and reviews]
+        SellerApi[Listings, products and fulfilment]
+        DeliveryApi[Delivery evidence, OTP and returns]
+        AdminApi[Analytics, audit and support]
+        Health[Health, readiness and Prometheus metrics]
+    end
+    Proxy --> Middleware
+    Middleware --> AuthApi & CommerceApi & SellerApi & DeliveryApi & AdminApi & Health
+
+    subgraph Data[Authoritative data and performance layer]
+        Postgres[(PostgreSQL 16<br/>commerce, evidence and audit)]
+        Search[(PostgreSQL FTS + pg_trgm<br/>exact and typo search)]
+        Redis[(Redis 7<br/>idempotency, OTP and correlations)]
+        Cache[(Versioned catalogue cache)]
+        Streams[(Redis Streams<br/>events, retries and dead letters)]
+        Media[(Local media or S3/R2<br/>signed upload and download)]
+    end
+    AuthApi & CommerceApi & SellerApi & DeliveryApi & AdminApi --> Postgres
+    CommerceApi --> Search
+    CommerceApi <--> Cache
+    AuthApi & CommerceApi & DeliveryApi --> Redis
+    SellerApi & CommerceApi & DeliveryApi --> Media
+    Static --> Media
+
+    subgraph Async[Asynchronous execution layer]
+        Publisher[Transactional event publisher]
+        Worker[Dedicated event worker]
+        Retry[Retry and stale-message recovery]
+        DLQ[Dead-letter streams]
+        Orchestrator[LangGraph orchestration]
+    end
+    CommerceApi & SellerApi --> Publisher --> Streams --> Worker --> Retry
+    Retry -->|success| Orchestrator
+    Retry -->|final failure| DLQ
+    Orchestrator --> Postgres & Media
+
+    subgraph Agents[Eight evidence-based agents]
+        A1[1. Catalogue Truth]
+        A2[2. Spec Enforcer]
+        A3[3. Size Translator]
+        A4[4. Review Filter]
+        A5[5. Vishwas Saathi]
+        A6[6. Address Guardian]
+        A7[7. Delivery Confirmation]
+        A8[8. Return Verifier]
+    end
+    Orchestrator --> A1 & A2 & A3 & A4 & A5 & A6 & A7 & A8
+
+    subgraph Providers[Models and external providers]
+        Reasoning[Gemini first, Groq fallback]
+        Vision[SAM, CLIP, ResNet and Stable Diffusion]
+        Voice[Sarvam ASR and TTS]
+        Vector[Pinecone retrieval]
+        Maps[Google Maps and DIGIPIN]
+        Messaging[Twilio WhatsApp and Verify]
+        Payments[Razorpay]
+    end
+    A1 & A2 & A4 & A8 --> Vision
+    A1 & A2 & A3 & A5 --> Reasoning
+    A3 & A5 --> Vector
+    A5 & A7 --> Voice
+    A6 --> Maps
+    A7 --> Messaging
+    CommerceApi --> Payments
+
+    subgraph Operations[Operations and recovery]
+        CI[GitHub Actions<br/>lint, tests, build and browser journeys]
+        Backup[PostgreSQL and Redis backups]
+        Restore[Isolated restore verification]
+        Observe[Prometheus metrics and structured logs]
+    end
+    CI --> Next & Api
+    Postgres & Redis --> Backup --> Restore
+    Health & Worker --> Observe
+
+    classDef client fill:#eaf2ff,stroke:#285ea8,color:#102a43;
+    classDef service fill:#fce8f1,stroke:#8b1d54,color:#4a1230;
+    classDef data fill:#fff6d8,stroke:#a87300,color:#4d3500;
+    classDef agent fill:#e5f7ed,stroke:#247447,color:#123d29;
+    classDef external fill:#f1ebff,stroke:#6842a6,color:#32205a;
+    class Buyer,Seller,Delivery,Admin client;
+    class Next,Proxy,Middleware,AuthApi,CommerceApi,SellerApi,DeliveryApi,AdminApi,Health,Worker,Orchestrator service;
+    class Postgres,Search,Redis,Cache,Streams,Media,Backup,Restore data;
+    class A1,A2,A3,A4,A5,A6,A7,A8 agent;
+    class Reasoning,Vision,Voice,Vector,Maps,Messaging,Payments external;

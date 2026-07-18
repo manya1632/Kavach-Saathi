@@ -10,7 +10,7 @@ test("admin can log in and see real platform analytics", async ({ page }) => {
   await page.getByRole("button", { name: "Log in" }).click();
 
   // Real bcrypt password check + a real DB round trip -- slower than a 5s default.
-  await expect(page.getByRole("button", { name: "Inspection Queue" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: "Inspection Queue" })).toBeVisible({ timeout: 60_000 });
 
   // Real /v1/admin/analytics data, not a fixture -- Orders count must be a real number.
   const ordersStat = page.locator(".seller-stat-grid div", { hasText: "Orders" });

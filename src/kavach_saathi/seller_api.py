@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -49,11 +49,9 @@ def _media_url(key: str | None) -> str | None:
     """Resolve a stored object key (mock-fixture path or freshly uploaded key) to the
     URL the frontend can load directly, mirroring the same convention `storefront_product`
     uses in app.py so inventory thumbnails and storefront images resolve identically."""
-    if not key:
-        return None
-    if key.startswith("http://") or key.startswith("https://"):
-        return key
-    return f"/mock-assets/{key.removeprefix('assets/mock/')}"
+    from kavach_saathi.media_storage import media_url
+
+    return media_url(key, get_settings())
 
 
 def _invalidate_size_popularity(product_id: str) -> None:
@@ -125,12 +123,13 @@ async def kyc_complete(
 async def list_seller_products(
     user: Annotated[User, Depends(_require_seller)],
     session: Session = Depends(get_session),
+    limit: Annotated[int | None, Query(ge=1, le=500)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
-    products = (
-        session.execute(select(Product).where(Product.seller_id == user.id).order_by(Product.created_at.desc()))
-        .scalars()
-        .all()
-    )
+    statement = select(Product).where(Product.seller_id == user.id).order_by(Product.created_at.desc()).offset(offset)
+    if limit is not None:
+        statement = statement.limit(limit)
+    products = session.execute(statement).scalars().all()
     variants_by_product: dict[str, list[ProductVariant]] = {}
     for variant in session.execute(
         select(ProductVariant).where(ProductVariant.product_id.in_([p.id for p in products]))
@@ -297,7 +296,7 @@ async def initialize_seller_product(
     session: Session = Depends(get_session),
 ):
     from kavach_saathi.container import get_container
-    from kavach_saathi.media_storage import _local_path
+    from kavach_saathi.media_storage import stored_object_size
     from kavach_saathi.models import WorkflowType
 
     _seller_profile(session, user)
@@ -312,23 +311,11 @@ async def initialize_seller_product(
                 detail=f"Image key '{key}' has invalid extension. Only JPG, JPEG, PNG, WEBP are allowed.",
             )
 
-        if settings.is_live:
-            import boto3
-
-            s3 = boto3.client("s3", region_name=settings.aws_region)
-            try:
-                head = s3.head_object(Bucket=settings.media_bucket, Key=key)
-                size = head.get("ContentLength", 0)
-            except Exception as exc:
-                raise HTTPException(
-                    status_code=400, detail=f"Image key '{key}' not found or inaccessible in S3"
-                ) from exc
-        else:
-            try:
-                path = _local_path(key, settings)
-                size = path.stat().st_size
-            except FileNotFoundError as exc:
-                raise HTTPException(status_code=400, detail=f"Image key '{key}' not found locally") from exc
+        try:
+            size = stored_object_size(key, settings)
+        except Exception as exc:
+            location = "object storage" if settings.uses_object_storage else "local storage"
+            raise HTTPException(status_code=400, detail=f"Image key '{key}' not found in {location}") from exc
 
         if size <= 0:
             raise HTTPException(status_code=400, detail=f"Image key '{key}' is empty")
@@ -415,8 +402,13 @@ async def initialize_seller_product(
                 }
             ),
         )
-    else:
+    elif settings.run_workflows_in_web:
         _run_workflow_in_background(lambda: container.service.resume(record.run_id))
+    else:
+        from kavach_saathi.events import enqueue_workflow
+
+        if not enqueue_workflow(record.run_id):
+            _run_workflow_in_background(lambda: container.service.resume(record.run_id))
 
     return {"product_id": product_id, "run_id": str(record.run_id), "status": "extracting"}
 
@@ -622,8 +614,13 @@ async def add_seller_variant(
 async def list_seller_orders(
     user: Annotated[User, Depends(_require_seller)],
     session: Session = Depends(get_session),
+    limit: Annotated[int | None, Query(ge=1, le=500)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
-    items = session.execute(select(OrderItem).where(OrderItem.seller_id == user.id)).scalars().all()
+    statement = select(OrderItem).where(OrderItem.seller_id == user.id).order_by(OrderItem.id.desc()).offset(offset)
+    if limit is not None:
+        statement = statement.limit(limit)
+    items = session.execute(statement).scalars().all()
     order_ids = list({item.order_id for item in items})
     orders_by_id = {
         order.id: order for order in session.execute(select(Order).where(Order.id.in_(order_ids))).scalars()

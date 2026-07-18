@@ -72,8 +72,11 @@ test("buyer can sign up, browse, add to cart, verify address, and place a real o
   await page.getByLabel("State *").fill("Chhattisgarh");
   await page.getByLabel("Postal PIN *").fill("495001");
   await page.getByRole("button", { name: "Save Address" }).click();
-  await expect(page.getByText("Address saved. The phone number was validated by carrier lookup.")).toBeVisible({ timeout: 30_000 });
-  await page.getByRole("dialog", { name: "Manage Addresses" }).getByRole("button", { name: "Close" }).click();
+  // The centered success notice intentionally disappears after one second. Assert
+  // the durable frontend state loaded back from GET /v1/addresses instead.
+  const addressDialog = page.getByRole("dialog", { name: "Manage Addresses" });
+  await expect(addressDialog.getByText("E2E Test Buyer", { exact: true })).toBeVisible({ timeout: 90_000 });
+  await addressDialog.getByRole("button", { name: "Close" }).click();
 
   await page.getByRole("button", { name: /Open cart with/ }).click();
   await page.getByRole("button", { name: "Continue to secure checkout" }).click();

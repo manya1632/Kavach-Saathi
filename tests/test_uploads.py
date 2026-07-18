@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+from io import BytesIO
+from unittest.mock import MagicMock
+
+from kavach_saathi.config import Settings
+from kavach_saathi.media_storage import create_presigned_upload, media_url, read_image_bytes, stored_object_size
+
 
 def test_presign_returns_same_origin_path(client) -> None:
     """The presign endpoint must hand the browser a same-origin path through the
@@ -38,3 +45,35 @@ def test_presign_ignores_public_base_url_for_browser_uploads(client, monkeypatch
         assert "kavach-demo.example.com" not in body["upload_url"]
     finally:
         get_settings.cache_clear()
+
+
+def test_object_storage_adapter_preserves_keys_and_signed_urls(monkeypatch) -> None:
+    storage = MagicMock()
+    storage.generate_presigned_url.return_value = "https://storage.example.test/signed"
+    storage.head_object.return_value = {"ContentLength": 123}
+    storage.get_object.return_value = {"Body": BytesIO(b"image-bytes")}
+    monkeypatch.setattr("kavach_saathi.media_storage._object_client", lambda _settings: storage)
+    settings = Settings(media_storage_backend="s3", media_local_read_fallback=False)
+
+    assert create_presigned_upload("uploads/product/a.png", "image/png", settings).startswith("https://")
+    assert media_url("uploads/product/a.png", settings).startswith("https://")
+    assert stored_object_size("uploads/product/a.png", settings) == 123
+    assert asyncio.run(read_image_bytes("uploads/product/a.png", settings)) == b"image-bytes"
+    storage.head_object.assert_called_once_with(
+        Bucket=settings.media_bucket,
+        Key="uploads/product/a.png",
+    )
+
+
+def test_object_storage_public_base_url_avoids_exposing_credentials(monkeypatch) -> None:
+    storage = MagicMock()
+    monkeypatch.setattr("kavach_saathi.media_storage._object_client", lambda _settings: storage)
+    settings = Settings(
+        media_storage_backend="s3",
+        media_public_base_url="https://cdn.example.test/media/",
+    )
+
+    assert media_url("uploads/product/a shirt.png", settings) == (
+        "https://cdn.example.test/media/uploads/product/a%20shirt.png"
+    )
+    storage.generate_presigned_url.assert_not_called()

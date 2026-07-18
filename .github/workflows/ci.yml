@@ -46,6 +46,12 @@ jobs:
       - name: Lint
         run: ruff check .
 
+      - name: Apply every database migration
+        run: alembic upgrade head
+
+      - name: Verify migration graph has one current head
+        run: test "$(alembic heads | wc -l)" -eq 1
+
       # No mypy/pyright in this project (plain Python without static typing on top of
       # pydantic's runtime validation) -- ruff is the only static check that applies.
 

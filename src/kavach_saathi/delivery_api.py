@@ -6,7 +6,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -121,6 +121,8 @@ async def _validated_image(key: str, cfg: Settings) -> dict:
 async def list_assigned_deliveries(
     user: Annotated[User, Depends(_require_delivery_boy)],
     db: Session = Depends(get_session),
+    limit: Annotated[int | None, Query(ge=1, le=500)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
     # The simulation intentionally exposes one shared queue. We still persist the
     # signed-in delivery person's ID when they perform an auditable action.
@@ -141,7 +143,10 @@ async def list_assigned_deliveries(
             )
         )
         .order_by(Order.created_at.desc())
+        .offset(offset)
     )
+    if limit is not None:
+        stmt = stmt.limit(limit)
     results = db.execute(stmt).all()
 
     deliveries = []
@@ -359,6 +364,8 @@ async def confirm_delivery(
 async def list_assigned_returns(
     user: Annotated[User, Depends(_require_delivery_boy)],
     db: Session = Depends(get_session),
+    limit: Annotated[int | None, Query(ge=1, le=500)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
     stmt = (
         select(ReturnRecord, Order, Address, User)
@@ -378,7 +385,10 @@ async def list_assigned_returns(
             )
         )
         .order_by(ReturnRecord.created_at.desc())
+        .offset(offset)
     )
+    if limit is not None:
+        stmt = stmt.limit(limit)
     results = db.execute(stmt).all()
 
     assigned_returns = []

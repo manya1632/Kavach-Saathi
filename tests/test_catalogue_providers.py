@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from kavach_saathi.config import Settings
+from kavach_saathi.providers.fashn_vton import FashnVtonClient, FashnVtonUnavailable
 from kavach_saathi.providers.image_quality import ImageQualityAssessor
 from kavach_saathi.providers.stolen_photo import GoogleVisionReverseImageSearch, GoogleVisionUnavailable
 
@@ -72,3 +74,23 @@ def test_stolen_photo_search_parses_real_rest_response_shape() -> None:
         "partial_matches": ["https://example.com/partial.jpg"],
         "pages": ["https://example.com/page"],
     }
+
+
+def test_missing_gradio_client_is_a_typed_provider_fallback(tmp_path, monkeypatch) -> None:
+    base_dir = tmp_path / "model_base"
+    base_dir.mkdir()
+    (base_dir / "f_front.png").write_bytes(_SAMPLE_IMAGE.read_bytes())
+    monkeypatch.setattr("kavach_saathi.providers.fashn_vton.BASE_MODEL_DIR", base_dir)
+
+    real_import = builtins.__import__
+
+    def import_without_gradio(name, *args, **kwargs):
+        if name.startswith("gradio_client"):
+            raise ModuleNotFoundError("No module named 'gradio_client'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", import_without_gradio)
+    provider = FashnVtonClient(Settings(huggingface_api_key="configured"))
+
+    with pytest.raises(FashnVtonUnavailable, match="gradio_client"):
+        provider._generate_view_sync(_SAMPLE_IMAGE.read_bytes(), "front", "woman", "tops")

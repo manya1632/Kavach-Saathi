@@ -1887,6 +1887,7 @@ export default function Storefront({ initialProductId = null }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [serverSearchResults, setServerSearchResults] = useState(null);
   const [category, setCategory] = useState("All");
   const [visibleCount, setVisibleCount] = useState(50);
   const [selected, setSelected] = useState(null);
@@ -1950,6 +1951,30 @@ export default function Storefront({ initialProductId = null }) {
       .catch((reason) => setError(reason.message))
       .finally(() => setLoading(false));
   }, [initialProductId]);
+
+  useEffect(() => {
+    const term = search.trim();
+    if (term.length < 2) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setServerSearchResults(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      request(`/storefront/products?q=${encodeURIComponent(term)}&limit=500`)
+        .then((catalogue) => {
+          if (!cancelled) setServerSearchResults(catalogue.items);
+        })
+        .catch(() => {
+          // The already-loaded catalogue remains a complete compatibility fallback.
+          if (!cancelled) setServerSearchResults(null);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [search]);
 
   async function refreshCart() {
     if (!auth?.user) {
@@ -2191,7 +2216,10 @@ export default function Storefront({ initialProductId = null }) {
 
   const visibleProducts = useMemo(() => {
     const term = search.toLowerCase().trim();
-    const matchingProducts = products.filter((product) => !term || [product.name, product.category, product.brand, product.material, product.occasion].some((value) => value?.toLowerCase().includes(term)));
+    const sourceProducts = serverSearchResults ?? products;
+    const matchingProducts = serverSearchResults
+      ? sourceProducts
+      : sourceProducts.filter((product) => !term || [product.id, product.name, product.category, product.brand, product.material, product.occasion].some((value) => value?.toLowerCase().includes(term)));
     if (category !== "All") return matchingProducts.filter((product) => product.category === category);
 
     const categoryOrder = categories.filter((item) => item !== "All");
@@ -2204,7 +2232,7 @@ export default function Storefront({ initialProductId = null }) {
       }
     }
     return balanced;
-  }, [products, search, category, categories]);
+  }, [products, serverSearchResults, search, category, categories]);
   const displayedProducts = visibleProducts.slice(0, visibleCount);
   const categoryCounts = useMemo(() => products.reduce((counts, product) => ({ ...counts, [product.category]: (counts[product.category] || 0) + 1 }), {}), [products]);
 

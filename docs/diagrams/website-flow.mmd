@@ -1,0 +1,67 @@
+%% Editable Mermaid source for docs/diagrams/website-flow.svg
+flowchart LR
+    Visitor([Visitor]) --> Auth{Authentication}
+    Auth -->|Buyer| BuyerHome[Buyer storefront /]
+    Auth -->|Seller| SellerHome[Seller portal /seller]
+    Auth -->|Delivery person| DeliveryHome[Delivery portal /delivery]
+    Auth -->|Administrator| AdminHome[Admin console /admin]
+
+    subgraph BuyerJourney[Buyer shopping journey]
+        direction TB
+        BuyerHome --> Discover[Search and category discovery]
+        Discover --> Product[Product detail and verified catalogue]
+        Product --> Size[Size Saathi recommendation]
+        Product --> Vishwas[Vishwas Saathi text and voice Q&A]
+        Product --> Cart[Cart and wishlist]
+        Cart --> Address[Map address, DIGIPIN and phone validation]
+        Address --> Checkout[Checkout]
+        Checkout -->|Prepaid| Razorpay[Razorpay sandbox]
+        Checkout -->|Cash on delivery| Order[Order created]
+        Razorpay --> Order
+        Order --> WhatsApp[WhatsApp ownership and delivery-date confirmation]
+        WhatsApp --> Scheduled[Delivery scheduled]
+        Scheduled --> Delivered[OTP-confirmed delivery]
+        Delivered --> Review[Verified review submission]
+        Delivered --> Return[Return or exchange request]
+    end
+
+    subgraph SellerJourney[Seller listing and fulfilment journey]
+        direction TB
+        SellerHome --> KYC[Seller identity and KYC]
+        KYC --> Upload[Upload product and label images]
+        Upload --> CatalogueAgent[Agent 1: catalogue truth]
+        Upload --> SpecAgent[Agent 2: specification extraction]
+        CatalogueAgent --> Corrections[Evidence review and corrections]
+        SpecAgent --> Corrections
+        Corrections --> Publish[Publish listing]
+        Publish --> Inventory[Inventory and order management]
+    end
+
+    subgraph DeliveryJourney[Delivery and return journey]
+        direction TB
+        DeliveryHome --> DeliveryQueue[Pending delivery queue]
+        DeliveryQueue --> DeliveryEvidence[Front and back delivery evidence]
+        DeliveryEvidence --> DeliveryOtp[Buyer WhatsApp OTP]
+        DeliveryOtp --> Delivered
+        DeliveryHome --> ReturnQueue[Pending return queue]
+        Return --> ReturnQueue
+        ReturnQueue --> ManualChecks[Manual condition checks]
+        ManualChecks --> ReturnOtp[Buyer WhatsApp OTP]
+        ReturnOtp --> ReturnComplete[Completed return]
+    end
+
+    subgraph Administration[Platform administration]
+        direction TB
+        AdminHome --> Analytics[Platform analytics]
+        AdminHome --> Audit[Agent evidence and audit logs]
+        AdminHome --> Support[Support and escalations]
+    end
+
+    classDef actor fill:#eaf2ff,stroke:#285ea8,color:#102a43,stroke-width:1.5px;
+    classDef portal fill:#fce8f1,stroke:#8b1d54,color:#4a1230,stroke-width:1.5px;
+    classDef commerce fill:#fff6d8,stroke:#a87300,color:#4d3500;
+    classDef trust fill:#e5f7ed,stroke:#247447,color:#123d29;
+    class Visitor actor;
+    class BuyerHome,SellerHome,DeliveryHome,AdminHome portal;
+    class Discover,Product,Cart,Address,Checkout,Razorpay,Order,Inventory commerce;
+    class Size,Vishwas,WhatsApp,Scheduled,Delivered,Review,Return,CatalogueAgent,SpecAgent,DeliveryEvidence,DeliveryOtp,ManualChecks,ReturnOtp,ReturnComplete trust;

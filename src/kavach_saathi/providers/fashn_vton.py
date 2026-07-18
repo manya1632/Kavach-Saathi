@@ -63,7 +63,6 @@ class FashnVtonClient:
         return await asyncio.to_thread(self._generate_view_sync, garment_png, view, garment_target, category)
 
     def _generate_view_sync(self, garment_png: bytes, view: str, garment_target: str, category: str) -> bytes:
-        from gradio_client import handle_file
         from PIL import Image
 
         prefix = PREFIX_BY_TARGET.get(garment_target)
@@ -81,6 +80,12 @@ class FashnVtonClient:
         flattened.paste(garment, mask=garment.split()[3])
 
         try:
+            # Keep the optional client import inside the typed provider boundary.
+            # A stale local image may not yet contain this declared dependency; that
+            # must make only this provider unavailable so the existing cascade can
+            # continue to HF Inference or Stable Diffusion.
+            from gradio_client import handle_file
+
             client = self._client()
             with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
                 flattened.save(tmp, format="PNG")

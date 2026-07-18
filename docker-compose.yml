@@ -30,6 +30,7 @@ services:
       retries: 10
 
   backend:
+    image: kavach-saathi-backend
     build:
       context: .
       dockerfile: Dockerfile.backend
@@ -44,6 +45,9 @@ services:
       # scripts/refresh_local.ps1 able to apply backend source changes instantly
       # without reinstalling the project's large Python dependency set.
       PYTHONPATH: /app/src
+      RUN_EVENT_CONSUMERS_IN_WEB: "false"
+      RUN_WORKFLOWS_IN_WEB: "false"
+      REQUIRE_WORKER_READY: "true"
     ports:
       - "8000:8000"
     depends_on:
@@ -56,6 +60,28 @@ services:
       # SAM 2.0 / CLIP / Stable Diffusion + ControlNet checkpoints (several GB) --
       # without this, every container recreate re-downloads them from HuggingFace Hub,
       # which is what made Agent 1's image generation look "hung" on a fresh container.
+      - kavach_hf_cache:/root/.cache/huggingface
+
+  worker:
+    image: kavach-saathi-backend
+    restart: unless-stopped
+    command: ["python", "-m", "kavach_saathi.event_worker"]
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://kavach:kavach@postgres:5432/kavach_saathi
+      REDIS_URL: redis://redis:6379/0
+      PYTHONPATH: /app/src
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+      TOKENIZERS_PARALLELISM: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./assets:/app/assets
       - kavach_hf_cache:/root/.cache/huggingface
 
   frontend:

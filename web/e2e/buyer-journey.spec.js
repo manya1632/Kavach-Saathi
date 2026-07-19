@@ -22,7 +22,7 @@ test("buyer can sign up, browse, add to cart, verify address, and place a real o
   await page.getByRole("button", { name: "Login" }).click();
   await page.getByRole("button", { name: "Sign up" }).click();
   await page.getByLabel("Full name").fill("E2E Test Buyer");
-  await page.getByLabel("Email").fill(uniqueEmail("buyer"));
+  await page.getByRole("textbox", { name: "Email", exact: true }).fill(uniqueEmail("buyer"));
   await page.getByLabel("Password").fill("correct-horse-1");
   await page.getByRole("button", { name: "Create account" }).click();
   // Real bcrypt hashing + a real DB round trip -- slower than Playwright's 5s default.

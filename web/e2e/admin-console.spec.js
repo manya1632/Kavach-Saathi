@@ -30,7 +30,7 @@ test("non-admin cannot see the admin console", async ({ page }) => {
   await page.getByRole("button", { name: "Login" }).click();
   await page.getByRole("button", { name: "Sign up" }).click();
   await page.getByLabel("Full name").fill("Guard Buyer");
-  await page.getByLabel("Email").fill(uniqueEmail);
+  await page.getByRole("textbox", { name: "Email", exact: true }).fill(uniqueEmail);
   await page.getByLabel("Password").fill("correct-horse-1");
   await page.getByRole("button", { name: "Create account" }).click();
   // Real bcrypt hashing + a real DB round trip -- slower than Playwright's 5s default.

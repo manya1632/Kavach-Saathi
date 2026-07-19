@@ -24,7 +24,7 @@ test("seller can sign up and start a real listing (Agent 1 + 2 pipeline)", async
   await page.getByRole("button", { name: "Sign up" }).click();
   await page.getByLabel("Your name").fill("E2E Test Seller");
   await page.getByLabel("Business name").fill("E2E Test Seller Co");
-  await page.getByLabel("Email").fill(uniqueEmail("seller"));
+  await page.getByRole("textbox", { name: "Email", exact: true }).fill(uniqueEmail("seller"));
   await page.getByLabel("Password").fill("correct-horse-1");
   await page.getByRole("button", { name: "Create seller account" }).click();
 

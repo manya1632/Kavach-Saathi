@@ -130,11 +130,17 @@ class GroqReasoningProvider(ReasoningProvider):
         # image-bearing calls omit `reasoning_effort`; text-only GPT-OSS accepts it.
         extra_params: dict[str, Any] = {}
         if images:
-            content: Any = [{"type": "text", "text": prompt}]
+            model = self.settings.groq_vision_model
+            vision_prompt = prompt
+            if model == "qwen/qwen3.6-27b":
+                vision_prompt = (
+                    f"{prompt}\nReturn only one JSON object matching this schema exactly:\n"
+                    f"{json.dumps(json_schema)}"
+                )
+            content: Any = [{"type": "text", "text": vision_prompt}]
             for image_bytes in images:
                 encoded = base64.b64encode(image_bytes).decode("ascii")
                 content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{encoded}"}})
-            model = self.settings.groq_vision_model
         else:
             content = prompt
             model = self.settings.groq_model
@@ -142,6 +148,18 @@ class GroqReasoningProvider(ReasoningProvider):
 
         async def invoke() -> Any:
             from kavach_saathi.model_registry import log_timing
+            response_format = (
+                {"type": "json_object"}
+                if model == "qwen/qwen3.6-27b"
+                else {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": schema.__name__,
+                        "strict": True,
+                        "schema": json_schema,
+                    },
+                }
+            )
             with log_timing("network_provider", f"groq_{model}"):
                 return await self.client.chat.completions.create(
                     model=model,
@@ -149,14 +167,7 @@ class GroqReasoningProvider(ReasoningProvider):
                         {"role": "system", "content": system},
                         {"role": "user", "content": content},
                     ],
-                    response_format={
-                        "type": "json_schema",
-                        "json_schema": {
-                            "name": schema.__name__,
-                            "strict": True,
-                            "schema": json_schema,
-                        },
-                    },
+                    response_format=response_format,
                     temperature=0,
                     **extra_params,
                 )

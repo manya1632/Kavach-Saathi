@@ -30,6 +30,13 @@ fraud.
 - Records provider, evidence, confidence, latency, and workflow state for every agent
   run.
 
+## ⚠️ Known Limitations (Please Read Before Testing)
+
+| Feature | Limitation | What to do instead |
+|---|---|---|
+| **WhatsApp Order Confirmation** | WhatsApp messaging uses a Twilio trial account. Only **one specific verified number** can receive WhatsApp messages (trial accounts are restricted to a single sandbox number). | Use the **email confirmation option** when confirming orders — it works without any restrictions. |
+| **Seller Photo Upload / Catalogue Generation** | Catalogue view generation uses the [FASHN API](https://fashn.ai/), which is a paid service. We currently have **~40 credits remaining**, and each product listing consumes **4 credits** (one per catalogue view). | Please use this feature sparingly — list only a couple of test products to avoid exhausting the credits during judging. |
+
 ## Architecture
 
 ### System architecture

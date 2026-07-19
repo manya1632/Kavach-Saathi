@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from io import BytesIO
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
-from kavach_saathi.config import Settings
+from kavach_saathi.config import Settings, get_settings
 from kavach_saathi.media_storage import create_presigned_upload, media_url, read_image_bytes, stored_object_size
 
 
@@ -45,6 +45,47 @@ def test_presign_ignores_public_base_url_for_browser_uploads(client, monkeypatch
         assert "kavach-demo.example.com" not in body["upload_url"]
     finally:
         get_settings.cache_clear()
+
+
+def test_same_origin_upload_relay_writes_reserved_object(client) -> None:
+    response = client.post(
+        "/v1/uploads/presign",
+        json={"kind": "delivery", "filename": "front.png", "content_type": "image/png"},
+    )
+    body = response.json()
+    upload_path = body["upload_url"].removeprefix("/agent-api")
+    written = get_settings().asset_dir / body["object_key"]
+    try:
+        upload = client.put(upload_path, content=b"valid-image-bytes", headers={"Content-Type": "image/png"})
+        assert upload.status_code == 204, upload.text
+        assert written.read_bytes() == b"valid-image-bytes"
+        replay = client.put(upload_path, content=b"replay", headers={"Content-Type": "image/png"})
+        assert replay.status_code == 403
+    finally:
+        written.unlink(missing_ok=True)
+
+
+def test_object_storage_upload_uses_same_origin_relay(client) -> None:
+    settings = get_settings()
+    with (
+        patch.object(settings, "media_storage_backend", "s3"),
+        patch("kavach_saathi.app.write_generated_image") as write_object,
+    ):
+        response = client.post(
+            "/v1/uploads/presign",
+            json={"kind": "review", "filename": "review.webp", "content_type": "image/webp"},
+        )
+        body = response.json()
+        assert body["upload_url"].startswith("/agent-api/v1/mock-uploads/")
+        upload = client.put(
+            body["upload_url"].removeprefix("/agent-api"),
+            content=b"webp-image-bytes",
+            headers={"Content-Type": "image/webp"},
+        )
+    assert upload.status_code == 204, upload.text
+    write_object.assert_called_once_with(
+        body["object_key"], b"webp-image-bytes", settings, content_type="image/webp"
+    )
 
 
 def test_object_storage_adapter_preserves_keys_and_signed_urls(monkeypatch) -> None:

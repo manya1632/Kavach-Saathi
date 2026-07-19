@@ -67,10 +67,10 @@ import {
   removeCartItem,
   removeWishlist,
   request,
-  resendEmailOtp,
+  resendContactOtp,
   signup,
   updateCartItem,
-  verifyEmailOtp,
+  verifyContactOtp,
 } from "@/lib/api";
 
 const LANGUAGE_OPTIONS = [
@@ -101,8 +101,7 @@ function variantIdFor(product, size) {
 }
 
 function audioUrl(key) {
-  if (!key) return "";
-  return `/mock-assets/${key.replace(/^assets\/mock\//, "")}`;
+  return assetUrl(key);
 }
 
 function money(value) {
@@ -1881,6 +1880,8 @@ function AuthModal({ open, onClose, onAuthenticated }) {
   const [role, setRole] = useState("buyer");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [signupOtpChannel, setSignupOtpChannel] = useState("email");
   const [password, setPassword] = useState("");
   const [preferredLanguage, setPreferredLanguage] = useState("en");
   const [businessName, setBusinessName] = useState("");
@@ -1904,12 +1905,13 @@ function AuthModal({ open, onClose, onAuthenticated }) {
         : await signup({
           role,
           name,
-          email,
+          verification_channel: signupOtpChannel,
+          ...(signupOtpChannel === "email" ? { email } : { phone }),
           password,
           preferred_language: preferredLanguage,
           ...(role === "seller" ? { business_name: businessName } : {}),
         });
-      if (mode === "signup" && session.email_verification_sent) {
+      if (mode === "signup" && session.verification_sent) {
         setPendingSession(session);
       } else {
         onAuthenticated(session);
@@ -1926,7 +1928,8 @@ function AuthModal({ open, onClose, onAuthenticated }) {
     setVerifyBusy(true);
     setVerifyError("");
     try {
-      const user = await verifyEmailOtp(otp);
+      const channel = pendingSession.verification_channel || "email";
+      const user = await verifyContactOtp(channel, otp);
       onAuthenticated({ ...pendingSession, user });
     } catch (reason) {
       setVerifyError(reason.message || "Incorrect or expired code");
@@ -1939,25 +1942,30 @@ function AuthModal({ open, onClose, onAuthenticated }) {
     setVerifyError("");
     setResendNotice("");
     try {
-      await resendEmailOtp();
-      setResendNotice("A new code was sent to your email.");
+      const channel = pendingSession.verification_channel || "email";
+      await resendContactOtp(channel);
+      setResendNotice(`A new code was sent via ${channel === "email" ? "email" : "WhatsApp"}.`);
     } catch (reason) {
       setVerifyError(reason.message || "Could not resend the code");
     }
   }
 
   if (pendingSession) {
+    const verificationChannel = pendingSession.verification_channel || "email";
+    const verificationTarget = verificationChannel === "email"
+      ? pendingSession.user?.email
+      : pendingSession.user?.phone;
     return (
       <div className="drawer-layer open" aria-hidden={!open}>
         <button className="drawer-scrim" type="button" onClick={onClose} aria-label="Close sign in" />
-        <aside className="side-drawer auth-drawer" role="dialog" aria-modal="true" aria-label="Verify your email">
+        <aside className="side-drawer auth-drawer" role="dialog" aria-modal="true" aria-label={`Verify via ${verificationChannel}`}>
           <div className="side-heading">
-            <div><p>ALMOST THERE</p><h2>Verify your email</h2></div>
+            <div><p>ALMOST THERE</p><h2>Verify via {verificationChannel === "email" ? "email" : "WhatsApp"}</h2></div>
             <button type="button" onClick={onClose} aria-label="Close"><X size={20} /></button>
           </div>
           <form className="auth-form" onSubmit={handleVerifyOtp}>
             <p style={{ fontSize: "13px", color: "#64748b", margin: 0 }}>
-              We emailed a 6-digit code to {pendingSession.user?.email}. Enter it below to verify your account.
+              We sent a 6-digit code to {verificationTarget} via {verificationChannel === "email" ? "email" : "WhatsApp"}. Enter it below to verify your account.
             </p>
             <label>Verification code
               <input
@@ -2026,11 +2034,21 @@ function AuthModal({ open, onClose, onAuthenticated }) {
                   {LANGUAGE_OPTIONS.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}
                 </select>
               </label>
+              <fieldset className="otp-channel-choice">
+                <legend>Send signup OTP via</legend>
+                <label><input type="radio" name="signup-otp-channel" value="email" checked={signupOtpChannel === "email"} onChange={() => setSignupOtpChannel("email")} /> Email</label>
+                <label><input type="radio" name="signup-otp-channel" value="whatsapp" checked={signupOtpChannel === "whatsapp"} onChange={() => setSignupOtpChannel("whatsapp")} /> WhatsApp</label>
+              </fieldset>
             </>
           )}
-          <label>{mode === "login" ? "Email or phone" : "Email"}
-            <input type={mode === "login" ? "text" : "email"} value={email} onChange={(event) => setEmail(event.target.value)} required />
-          </label>
+          {mode === "login" ? <label>Email or phone
+            <input type="text" value={email} onChange={(event) => setEmail(event.target.value)} required />
+          </label> : signupOtpChannel === "email" ? <label>Email
+            <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required />
+          </label> : <label>WhatsApp number
+            <input type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+919748572321" autoComplete="tel" required />
+            <small>Include the country code, for example +91 for India.</small>
+          </label>}
           <label>Password
             <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={mode === "signup" ? 8 : 1} />
           </label>

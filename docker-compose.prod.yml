@@ -91,6 +91,8 @@ services:
     build:
       context: ./web
       dockerfile: Dockerfile.prod
+      args:
+        AGENT_API_ORIGIN: http://backend:8000
     restart: unless-stopped
     environment:
       AGENT_API_ORIGIN: http://backend:8000

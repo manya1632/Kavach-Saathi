@@ -107,6 +107,16 @@ def media_url(key: str | None, settings: Settings, *, expires_in: int = 3600) ->
         return key
     normalized = _object_key(key, settings)
     if settings.uses_object_storage:
+        # Seed/demo fixtures intentionally remain in the repository-mounted assets
+        # directory. During the additive S3 migration, serve those known local files
+        # through the backend while newly uploaded/generated objects use signed S3
+        # URLs. This avoids signing keys that do not exist in the bucket.
+        if settings.media_local_read_fallback:
+            try:
+                _local_path(key, settings)
+                return f"/mock-assets/{normalized.removeprefix('assets/mock/')}"
+            except FileNotFoundError:
+                pass
         if settings.media_public_base_url:
             return f"{settings.media_public_base_url.rstrip('/')}/{quote(normalized, safe='/')}"
         return _object_client(settings).generate_presigned_url(

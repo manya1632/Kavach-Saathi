@@ -362,6 +362,10 @@ img { max-width: 100%; }
 .auth-form label { display: flex; flex-direction: column; gap: 6px; color: var(--plum); font-size: 9px; font-weight: 900; letter-spacing: .04em; }
 .auth-form input, .auth-form select { padding: 11px; border: 1px solid #d5c9ce; border-radius: 7px; outline: 0; font-size: 11px; font-weight: 400; color: #241a1e; }
 .auth-form input:focus, .auth-form select:focus { border-color: var(--plum); }
+.auth-form .otp-channel-choice { display: flex; flex-wrap: wrap; gap: 12px; margin: 0; padding: 10px 12px; border: 1px solid #d5c9ce; border-radius: 7px; }
+.auth-form .otp-channel-choice legend { padding: 0 4px; color: var(--plum); font-size: 9px; font-weight: 900; letter-spacing: .04em; }
+.auth-form .otp-channel-choice label { flex-direction: row; align-items: center; gap: 5px; color: #241a1e; font-size: 11px; font-weight: 600; }
+.auth-form .otp-channel-choice input { margin: 0; padding: 0; }
 .auth-error { margin: 0; padding: 9px 11px; border-radius: 7px; color: #9a1c1c; background: #fbe3e3; font-size: 9px; font-weight: 700; }
 .checkbox-label { flex-direction: row !important; align-items: center; gap: 8px !important; }
 .checkbox-label input { width: auto; }

@@ -99,11 +99,16 @@ class SignupRequest(BaseModel):
     email: str | None = None
     phone: str | None = None
     business_name: str | None = None
+    verification_channel: Literal["email", "whatsapp"] | None = None
 
     @model_validator(mode="after")
     def require_contact(self) -> SignupRequest:
         if not self.email and not self.phone:
             raise ValueError("email or phone is required")
+        if self.verification_channel == "email" and not self.email:
+            raise ValueError("email is required when email verification is selected")
+        if self.verification_channel == "whatsapp" and not self.phone:
+            raise ValueError("phone is required when WhatsApp verification is selected")
         return self
 
 
@@ -124,6 +129,7 @@ class AuthUser(BaseModel):
     phone: str | None = None
     preferred_language: str
     email_verified: bool = False
+    phone_verified: bool = False
 
 
 class TokenResponse(BaseModel):
@@ -135,10 +141,20 @@ class TokenResponse(BaseModel):
     # signup didn't include an email, or SMTP isn't configured (honest degrade,
     # doesn't block account creation).
     email_verification_sent: bool = False
+    verification_sent: bool = False
+    verification_channel: Literal["email", "whatsapp"] | None = None
 
 
 class EmailOtpVerifyRequest(BaseModel):
     otp: str = Field(min_length=4, max_length=10)
+
+
+class ContactOtpVerifyRequest(EmailOtpVerifyRequest):
+    channel: Literal["email", "whatsapp"]
+
+
+class ContactOtpResendRequest(BaseModel):
+    channel: Literal["email", "whatsapp"]
 
 
 class SellerSpecification(BaseModel):

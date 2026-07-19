@@ -30,6 +30,7 @@ class User(Base):
     measurements_cm: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     trusted_returner: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    phone_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     seller_profile: Mapped[SellerProfile | None] = relationship(back_populates="user", uselist=False)

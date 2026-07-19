@@ -534,7 +534,7 @@ def test_delivery_boy_flow_and_reschedule():
         session.commit()
 
         order = Order(
-            id="O-CHAR-DEL-1",
+            id="O-POP-DEL-1",
             buyer_id=buyer.id,
             address_id=addr.id,
             status=OrderStatus.DELIVERY_SCHEDULED,
@@ -554,7 +554,7 @@ def test_delivery_boy_flow_and_reschedule():
         order.status = "delivery_rescheduled"
         session.commit()
 
-        updated = session.get(Order, "O-CHAR-DEL-1")
+        updated = session.get(Order, "O-POP-DEL-1")
         assert updated.status == "delivery_rescheduled"
         assert updated.rescheduled_count == 1
     finally:

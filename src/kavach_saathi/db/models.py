@@ -287,7 +287,11 @@ class RazorpayWebhookEvent(Base):
 
 class Review(Base):
     __tablename__ = "reviews"
-    __table_args__ = (UniqueConstraint("buyer_id", "order_id", "product_id", name="uq_reviews_buyer_id_order_id_product_id"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "buyer_id", "order_id", "product_id", name="uq_reviews_buyer_id_order_id_product_id"
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     product_id: Mapped[str] = mapped_column(String(32), ForeignKey("products.id"), nullable=False)

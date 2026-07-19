@@ -1198,7 +1198,10 @@ async def create_review(
         .first()
     )
     if duplicate:
-        raise HTTPException(status_code=409, detail="You have already submitted a review for this product in this order.")
+        raise HTTPException(
+            status_code=409,
+            detail="You have already submitted a review for this product in this order.",
+        )
 
     # Fetch image bytes for verification
     from kavach_saathi.media_storage import read_image_bytes

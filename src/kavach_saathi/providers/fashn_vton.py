@@ -6,7 +6,10 @@ from pathlib import Path
 
 from kavach_saathi.config import Settings
 
-BASE_MODEL_DIR = Path("assets/model_base")
+# Resolve from the repository/application root instead of the process working
+# directory.  The web worker and background worker can be launched from different
+# directories, but both must find the same 16 bundled model-reference photos.
+BASE_MODEL_DIR = Path(__file__).resolve().parents[3] / "assets" / "model_base"
 
 # Maps the seller's declared garment_target to the base-photo filename prefix.
 PREFIX_BY_TARGET = {"woman": "f", "man": "m", "girl": "g", "boy": "b"}

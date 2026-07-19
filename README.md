@@ -1,401 +1,331 @@
 # Kavach Saathi
 
-Kavach Saathi is an agentic commerce-safety prototype for trustworthy marketplace
-shopping. Its Next.js storefront and FastAPI backend use eight coordinated AI agents
-to check product claims, sizing, reviews, addresses, delivery confirmation, and
-returns using real evidence — not fixture data pretending to be AI. The included demo
-data is synthetic.
+**Live deployment:** [https://shop.65-2-86-148.sslip.io](https://shop.65-2-86-148.sslip.io)
 
-## Why it matters
+Kavach Saathi is an evidence-first marketplace safety platform. A Next.js storefront
+and FastAPI backend coordinate eight AI agents across the seller, buyer, delivery, and
+return journeys. Every automated decision carries evidence and a confidence score;
+uncertain outcomes are sent for human review instead of being presented as proof of
+fraud.
 
-Online buyers often face misleading listings, inconsistent sizes, irrelevant review
-media, address failures, unwanted deliveries, and return disputes. Kavach Saathi adds
-explainable checks and human-safe fallbacks at the points where these failures occur.
-Confidence scores are evidence signals, never proof of fraud, and a missing API key
-degrades honestly to "not configured" rather than faking a result.
+> The records and media included with this repository are synthetic demonstration
+> data. External providers run only when their credentials are configured and expose
+> an honest degraded state when they are unavailable.
 
-## Features
+## What the platform does
 
-- Four role-scoped web apps sharing one backend: buyer storefront, seller portal,
-  delivery portal, and admin console.
-- Real cart, checkout (COD and Razorpay sandbox prepaid), wishlist, addresses, orders,
-  reviews, and returns.
-- Image-first seller listing flow: upload product + label photos, and Agent 1/Agent 2
-  do the catalogue-image generation and spec extraction — nothing is seller-typed and
-  trusted blindly.
-- WhatsApp-based order confirmation, delivery scheduling, and return/exchange flows
-  (Twilio), plus a Vishwas Saathi in-app chat assistant.
-- Evidence-backed AI results with bilingual (and beyond) buyer messages and optional
-  voice support.
-- Deterministic demo mode: the whole stack runs and is fully explorable with zero API
-  keys configured — every agent just honestly reports what it couldn't check.
+- Provides role-scoped experiences for buyers, sellers, delivery personnel, and
+  administrators.
+- Supports catalogue discovery, wishlist, cart, address management, COD and sandbox
+  prepaid checkout, orders, reviews, returns, and exchanges.
+- Turns seller product and label photographs into consistent multi-view catalogues and
+  verified structured specifications.
+- Recommends sizes from seller charts, buyer measurements, and cross-seller fit history.
+- Filters unrelated review media while preserving the buyer's written review.
+- Validates map coordinates, postal information, locality, phone data, and DIGIPIN
+  before dispatch.
+- Confirms orders through voice calls with bounded retries and WhatsApp fallback.
+- Compares return evidence with delivery evidence and escalates ambiguity to a manual
+  inspection queue.
+- Records provider, evidence, confidence, latency, and workflow state for every agent
+  run.
 
-## Scalability and reliability foundations
+## Architecture
 
-Stages 1–6 added bounded PostgreSQL/Redis connection management, indexed and
-paginated queries, versioned catalogue caching, dedicated Redis Stream workers with
-retries and dead-letter handling, structured operational telemetry, verified backup
-and restore utilities, optional S3/R2 media storage with local compatibility, managed
-database/Redis configuration, and PostgreSQL full-text plus typo-tolerant product
-search. Existing buyer, seller, delivery, admin, payment, voice, review and return
-flows remain connected to the same authoritative database and evidence model.
+### System architecture
 
-## Architecture and website flow
+![Kavach Saathi system architecture](docs/images/system-architecture.png)
 
-### End-to-end website journey
+### Agent workflows
 
-```mermaid
-%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#ffffff", "primaryTextColor": "#1a1a1a", "primaryBorderColor": "#4a4a4a", "lineColor": "#6b6b6b", "clusterBkg": "#ffffff", "clusterBorder": "#8b8b8b", "edgeLabelBackground": "#ffffff", "titleColor": "#1a1a1a"}}}%%
-flowchart LR
-    subgraph Canvas[" "]
-    direction LR
-    Visitor([Visitor]) --> Auth{Authentication}
-    Auth -->|Buyer| BuyerHome[Buyer storefront /]
-    Auth -->|Seller| SellerHome[Seller portal /seller]
-    Auth -->|Delivery person| DeliveryHome[Delivery portal /delivery]
-    Auth -->|Administrator| AdminHome[Admin console /admin]
+![Kavach Saathi end-to-end agent workflows](docs/images/agent-workflows.png)
 
-    subgraph BuyerJourney[Buyer shopping journey]
-        direction TB
-        BuyerHome --> Discover[Search and category discovery]
-        Discover --> Product[Product detail and verified catalogue]
-        Product --> Size[Size Saathi recommendation]
-        Product --> Vishwas[Vishwas Saathi text and voice Q&A]
-        Product --> Cart[Cart and wishlist]
-        Cart --> Address[Map address, DIGIPIN and phone validation]
-        Address --> Checkout[Checkout]
-        Checkout -->|Prepaid| Razorpay[Razorpay sandbox]
-        Checkout -->|Cash on delivery| Order[Order created]
-        Razorpay --> Order
-        Order --> WhatsApp[WhatsApp or email ownership and delivery-date confirmation]
-        WhatsApp --> Scheduled[Delivery scheduled]
-        Scheduled --> Delivered[OTP-confirmed delivery]
-        Delivered --> Review[Verified review submission]
-        Delivered --> Return[Return or exchange request]
-    end
+PostgreSQL is the source of truth. Redis provides cache, workflow state, and durable
+Streams-based event delivery. FastAPI publishes queued work to a dedicated worker,
+while LangGraph coordinates the relevant agents. The Next.js application exposes all
+four portals and keeps API credentials server-side through the `/agent-api/*` proxy.
 
-    subgraph SellerJourney[Seller listing and fulfilment journey]
-        direction TB
-        SellerHome --> KYC[Seller identity]
-        KYC --> Upload[Upload product and label images]
-        Upload --> CatalogueAgent[Agent 1: catalogue truth]
-        Upload --> SpecAgent[Agent 2: specification extraction]
-        CatalogueAgent --> Corrections[Evidence review and corrections]
-        SpecAgent --> Corrections
-        Corrections --> Publish[Publish listing]
-        Publish --> Inventory[Inventory and order management]
-    end
+## The eight agents
 
-    subgraph DeliveryJourney[Delivery and return journey]
-        direction TB
-        DeliveryHome --> DeliveryQueue[Pending delivery queue]
-        DeliveryQueue --> DeliveryEvidence[Front and back delivery evidence]
-        DeliveryEvidence --> DeliveryOtp[Buyer WhatsApp or email OTP]
-        DeliveryOtp --> Delivered
-        DeliveryHome --> ReturnQueue[Pending return queue]
-        Return --> ReturnQueue
-        ReturnQueue --> ManualChecks[Manual condition checks]
-        ManualChecks --> ReturnOtp[Buyer WhatsApp or email OTP]
-        ReturnOtp --> ReturnComplete[Completed return]
-    end
+| # | Agent | Responsibility |
+|---:|---|---|
+| 1 | Catalogue Truth Guardian | Segments seller product photos, checks image quality and possible reuse, and generates front, back, left, and right catalogue views through a provider cascade. |
+| 2 | Honest Spec Enforcer | Extracts label-backed fabric, GSM, colour, and care details; computer vision fills only fields the label does not provide. |
+| 3 | Cross-Seller Size Translator | Recommends a size using the seller chart, buyer measurements, purchase history, and fit feedback, with a deterministic fallback. |
+| 4 | Image-Truth Review Filter | Uses image/text relevance scoring to hide review media that does not match the product while retaining the written review. |
+| 5 | Trusted Voice Q&A | Answers questions from verified catalogue, order, review, address, and return evidence, with multilingual text and optional Sarvam speech. |
+| 6 | Address Guardian | Cross-checks coordinates, locality, postal PIN, phone information, and the India Post DIGIPIN calculation. |
+| 7 | Delivery Confirmation | Confirms buyer intent before dispatch through Twilio voice, Sarvam transcription, retries, and WhatsApp fallback. |
+| 8 | Return Authenticity Verifier | Compares sampled return-video frames with delivery/catalogue evidence using CLIP, ResNet-50, and multimodal reasoning; uncertain cases go to manual inspection. |
 
-    subgraph Administration[Platform administration]
-        direction TB
-        AdminHome --> Analytics[Platform analytics]
-        AdminHome --> Audit[Agent evidence and audit logs]
-        AdminHome --> Support[Support and escalations]
-    end
-    end
-    style Canvas fill:#ffffff,stroke:#ffffff
+See [the detailed agent guide](docs/AGENTS.md), [architecture notes](docs/architecture.md),
+and [API reference](docs/API.md) for implementation-level behavior and fallback rules.
 
-    classDef actor fill:#eaf2ff,stroke:#285ea8,color:#102a43,stroke-width:1.5px;
-    classDef portal fill:#fce8f1,stroke:#8b1d54,color:#4a1230,stroke-width:1.5px;
-    classDef commerce fill:#fff6d8,stroke:#a87300,color:#4d3500;
-    classDef trust fill:#e5f7ed,stroke:#247447,color:#123d29;
-    class Visitor actor;
-    class BuyerHome,SellerHome,DeliveryHome,AdminHome portal;
-    class Discover,Product,Cart,Address,Checkout,Razorpay,Order,Inventory commerce;
-    class Size,Vishwas,WhatsApp,Scheduled,Delivered,Review,Return,CatalogueAgent,SpecAgent,DeliveryEvidence,DeliveryOtp,ManualChecks,ReturnOtp,ReturnComplete trust;
-```
-
-### System design and data flow
-
-```mermaid
-%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#ffffff", "primaryTextColor": "#1a1a1a", "primaryBorderColor": "#4a4a4a", "lineColor": "#6b6b6b", "clusterBkg": "#ffffff", "clusterBorder": "#8b8b8b", "edgeLabelBackground": "#ffffff", "titleColor": "#1a1a1a"}}}%%
-flowchart TB
-    subgraph Canvas[" "]
-    direction TB
-    subgraph Clients[Client layer]
-        Buyer[Buyer web app]
-        Seller[Seller portal]
-        Delivery[Delivery portal]
-        Admin[Admin console]
-    end
-
-    subgraph Edge[Web and edge layer]
-        Next[Next.js 16 application]
-        Proxy[/agent-api reverse proxy/]
-        Static[Local assets or CDN]
-    end
-
-    Buyer --> Next
-    Seller --> Next
-    Delivery --> Next
-    Admin --> Next
-    Next --> Proxy
-    Next --> Static
-
-    subgraph Api[FastAPI application layer]
-        Middleware[Request ID, structured logs and rate limits]
-        AuthApi[JWT authentication and role authorization]
-        CommerceApi[Catalogue, cart, checkout, orders and reviews]
-        SellerApi[Seller listings, products and fulfilment]
-        DeliveryApi[Delivery evidence, OTP and returns]
-        AdminApi[Analytics, audit and support]
-        Health[Health, readiness and Prometheus metrics]
-    end
-
-    Proxy --> Middleware
-    Middleware --> AuthApi
-    Middleware --> CommerceApi
-    Middleware --> SellerApi
-    Middleware --> DeliveryApi
-    Middleware --> AdminApi
-    Middleware --> Health
-
-    subgraph Data[Authoritative data and performance layer]
-        Postgres[(PostgreSQL 16<br/>users, products, orders, evidence and audit)]
-        Search[(PostgreSQL FTS + pg_trgm<br/>exact and typo-tolerant search)]
-        Redis[(Redis 7<br/>idempotency, OTP state and correlations)]
-        Cache[(Redis catalogue cache<br/>versioned and fail-open)]
-        Streams[(Redis Streams<br/>events, retries and dead letters)]
-        Media[(Local media or S3/R2<br/>signed uploads and downloads)]
-    end
-
-    AuthApi --> Postgres
-    CommerceApi --> Postgres
-    SellerApi --> Postgres
-    DeliveryApi --> Postgres
-    AdminApi --> Postgres
-    CommerceApi --> Search
-    CommerceApi <--> Cache
-    AuthApi --> Redis
-    CommerceApi --> Redis
-    DeliveryApi --> Redis
-    SellerApi --> Media
-    CommerceApi --> Media
-    DeliveryApi --> Media
-    Static --> Media
-
-    subgraph Async[Asynchronous execution layer]
-        Publisher[Transactional event publisher]
-        Worker[Dedicated event worker]
-        Retry[Bounded retry and stale-message recovery]
-        DLQ[Dead-letter streams]
-        Orchestrator[LangGraph orchestration service]
-    end
-
-    CommerceApi --> Publisher
-    SellerApi --> Publisher
-    Publisher --> Streams
-    Streams --> Worker
-    Worker --> Retry
-    Retry -->|success| Orchestrator
-    Retry -->|final failure| DLQ
-    Orchestrator --> Postgres
-    Orchestrator --> Media
-
-    subgraph Agents[Eight evidence-based agents]
-        A1[1. Catalogue Truth Guardian]
-        A2[2. Honest Spec Enforcer]
-        A3[3. Size Translator]
-        A4[4. Review Filter]
-        A5[5. Vishwas Saathi]
-        A6[6. Address Guardian]
-        A7[7. Delivery Confirmation]
-        A8[8. Return Verifier]
-    end
-
-    Orchestrator --> A1
-    Orchestrator --> A2
-    Orchestrator --> A3
-    Orchestrator --> A4
-    Orchestrator --> A5
-    Orchestrator --> A6
-    Orchestrator --> A7
-    Orchestrator --> A8
-
-    subgraph Providers[External and self-hosted providers]
-        Reasoning[Gemini first, Groq fallback]
-        Vision[SAM, CLIP, ResNet and Stable Diffusion]
-        Voice[Sarvam ASR and TTS]
-        Vector[Pinecone retrieval]
-        Maps[Google Maps and DIGIPIN]
-        Messaging[Twilio WhatsApp and Verify]
-        Payments[Razorpay]
-    end
-
-    A1 --> Vision
-    A1 --> Reasoning
-    A2 --> Vision
-    A2 --> Reasoning
-    A3 --> Vector
-    A3 --> Reasoning
-    A4 --> Vision
-    A5 --> Voice
-    A5 --> Vector
-    A5 --> Reasoning
-    A6 --> Maps
-    A7 --> Messaging
-    A7 --> Voice
-    A8 --> Vision
-    CommerceApi --> Payments
-
-    subgraph Operations[Operations and recovery]
-        CI[GitHub Actions<br/>lint, tests, build and browser journeys]
-        Backup[PostgreSQL and Redis backups]
-        Restore[Isolated restore verification]
-        Observe[Prometheus metrics and structured logs]
-    end
-
-    CI --> Next
-    CI --> Api
-    Postgres --> Backup
-    Redis --> Backup
-    Backup --> Restore
-    Health --> Observe
-    Worker --> Observe
-    end
-    style Canvas fill:#ffffff,stroke:#ffffff
-
-    classDef client fill:#eaf2ff,stroke:#285ea8,color:#102a43;
-    classDef service fill:#fce8f1,stroke:#8b1d54,color:#4a1230;
-    classDef data fill:#fff6d8,stroke:#a87300,color:#4d3500;
-    classDef agent fill:#e5f7ed,stroke:#247447,color:#123d29;
-    classDef external fill:#f1ebff,stroke:#6842a6,color:#32205a;
-    class Buyer,Seller,Delivery,Admin client;
-    class Next,Proxy,Middleware,AuthApi,CommerceApi,SellerApi,DeliveryApi,AdminApi,Health,Worker,Orchestrator service;
-    class Postgres,Search,Redis,Cache,Streams,Media,Backup,Restore data;
-    class A1,A2,A3,A4,A5,A6,A7,A8 agent;
-    class Reasoning,Vision,Voice,Vector,Maps,Messaging,Payments external;
-```
-
-The diagrams show the logical deployment boundaries. PostgreSQL remains the source of
-truth; Redis cache failures fall back to PostgreSQL, and long-running model workflows
-execute through the dedicated worker so API requests remain responsive.
-
-## System architecture
+## Repository layout
 
 ```text
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  Buyer web   │     │ Seller portal│     │Delivery portal│     │Admin console │
-│ (storefront) │     │  (/seller)   │     │  (/delivery)  │     │   (/admin)   │
-└──────┬───────┘     └──────┬───────┘     └──────┬────────┘     └──────┬───────┘
-       │                    │                     │                     │
-       └────────────────────┴────────┬────────────┴─────────────────────┘
-                                      │  Next.js :3000 (single app, role-scoped routes)
-                                      │  /agent-api/* rewrite proxy
-                                      ▼
-                          ┌───────────────────────┐
-                          │     FastAPI :8000      │
-                          │  auth · commerce ·      │
-                          │  seller · delivery ·    │
-                          │  admin · specs routers  │
-                          └───────────┬─────────────┘
-                                      │
-                 ┌────────────────────┼─────────────────────┐
-                 ▼                    ▼                      ▼
-      ┌────────────────────┐ ┌────────────────┐   ┌───────────────────────┐
-      │ OrchestrationService │ │  Postgres 16   │   │        Redis 7        │
-      │  + LangGraph workflows│ │  26 tables     │   │ cache + Streams event │
-      │  (Agents 1-8)         │ │                │   │ bus (order.placed,    │
-      └──────────┬─────────┘ └────────────────┘   │ review.submitted)      │
-                 │                                  └───────────────────────┘
-                 ▼
-    ┌─────────────────────────────────────────────────────────────────┐
-    │ Self-hosted models: SAM 2.1 · CLIP · ResNet-50 · Stable Diffusion │
-    │ Real external APIs (each independently config-gated):             │
-    │ Gemini · Groq · FASHN · Hugging Face · Pinecone · Sarvam ·         │
-    │ Twilio (voice + WhatsApp) · Google Maps · Google Vision · Razorpay │
-    └─────────────────────────────────────────────────────────────────┘
-```
-
-**Roles.** One `users` table, three roles gated by JWT (`buyer`, `seller`, `admin`) plus
-a fourth (`delivery_boy`) added for the delivery portal — `require_role(...)` guards
-each role's routes. There's no public admin signup; only a seeded account can reach
-`/admin`.
-
-**Agents.** LangGraph compiles one workflow graph per operation (listing analysis,
-review analysis, return analysis, size/voice/address queries). Agents that call real,
-slow model inference or external APIs (1, 2, 4, 8) run on a background thread so the
-request returns `status: "queued"` immediately; the frontend polls
-`GET /v1/runs/{run_id}` until it finishes. Every agent call writes a row to
-`agent_logs` with a real confidence, latency, and provider string — the audit trail
-that proves a run was genuinely computed, not read from a fixture.
-
-| # | Agent | Role |
-|---|---|---|
-| 1 | Catalogue Truth Guardian | Segments the product photo (SAM 2.1) and generates real catalogue views through a 5-tier provider cascade; flags stolen/copied photos. |
-| 2 | Honest Spec Enforcer | OCRs the label/tag photo for fabric, GSM, colour, wash care; CV (CLIP + ResNet-50) fills in only what the label didn't print, never overrides what it did. |
-| 3 | Cross-Seller Size Translator | Recommends a size from the buyer's own measurements and cross-seller purchase history (Pinecone RAG). |
-| 4 | Image-Truth Review Filter | Flags review photos that don't actually match the product. |
-| 5 | Trusted Voice Q&A | Answers product questions grounded in verified specs/reviews, with optional Hindi voice. |
-| 6 | Address Guardian | Validates postal/coordinate/locality/DIGIPIN consistency before delivery. |
-| 7 | Delivery Confirmation | Real outbound call/WhatsApp confirming delivery details before dispatch. |
-| 8 | Return Authenticity Verifier | Compares the buyer's return photo against the delivered-item photo; escalates uncertainty to manual review instead of guessing. |
-
-See [docs/architecture.md](docs/architecture.md) for the full runtime/data-layer
-writeup and [docs/AGENTS.md](docs/AGENTS.md) for a per-agent breakdown of exactly which
-real model/API each one calls and how it degrades when unconfigured. For a single,
-narrative walkthrough of how all of this fits together, see [EXPLAIN.md](EXPLAIN.md).
-
-## Repository structure
-
-```text
-web/                    Next.js UI (storefront/seller/delivery/admin) and Playwright tests
-src/kavach_saathi/      FastAPI app, agents, providers, orchestration, and database
+web/                    Next.js portals and Playwright journeys
+src/kavach_saathi/      FastAPI APIs, agents, providers, orchestration, and persistence
 migrations/             Alembic database migrations
-tests/                  Python integration and feature tests
-data/seed/               Synthetic demo records
-assets/mock/             Synthetic demo media
-scripts/                 Seed and local-development utilities
-docker-compose.yml       Local PostgreSQL, Redis, backend, and frontend stack
+tests/                  Backend integration, workflow, and feature tests
+data/seed/              Synthetic demonstration records
+assets/mock/            Synthetic product, catalogue, label, and upload media
+docs/images/            README architecture images
+scripts/                Seed, backup, restore, and local-development utilities
 ```
 
 ## Run locally
 
-Requirements: Docker Desktop, or Python 3.11+, [uv](https://docs.astral.sh/uv/),
-Node.js 20+, PostgreSQL, and Redis. See [SETUP.md](SETUP.md) for the full walkthrough
-and [RUNBOOK.md](RUNBOOK.md) for a judge/reviewer path through every agent.
+### Prerequisites
 
-The shortest path is Docker:
+The recommended setup uses [Git](https://git-scm.com/) and
+[Docker Desktop](https://www.docker.com/products/docker-desktop/) with Docker Compose.
+Allow at least 20 GB of free disk space: the first backend build installs the CPU
+PyTorch and Hugging Face model stack and can take several minutes.
+
+External API keys are optional for local exploration. With the defaults from
+`.env.example`, the application starts in deterministic demo mode and reports
+unconfigured providers honestly.
+
+### Recommended: complete Docker setup
+
+1. Clone the repository and enter it:
+
+   ```bash
+   git clone https://github.com/manya1632/Kavach-Saathi.git
+   cd Kavach-Saathi
+   ```
+
+2. Create the local environment file.
+
+   macOS/Linux:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   Windows PowerShell:
+
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+
+   The checked-in defaults already point at local PostgreSQL and Redis. Add provider
+   credentials to `.env` only for integrations you want to exercise, such as Gemini,
+   Groq, Google Maps, Pinecone, Sarvam, Twilio, or Razorpay. Never commit `.env`.
+
+3. Build the application images and start the databases:
+
+   ```bash
+   docker compose build
+   docker compose up -d postgres redis
+   ```
+
+4. Apply the schema and load the synthetic demonstration catalogue:
+
+   ```bash
+   docker compose run --rm backend alembic upgrade head
+   docker compose run --rm backend python scripts/generate_seed_data.py
+   ```
+
+   The seed command resets the local application tables. Run it on first setup or when
+   you intentionally want fresh demo data, not after creating local records you need to
+   keep.
+
+5. Start the API, event worker, and web application:
+
+   ```bash
+   docker compose up -d
+   docker compose ps
+   ```
+
+6. Confirm that the backend is ready:
+
+   ```bash
+   curl http://localhost:8000/health
+   ```
+
+   PowerShell alternative:
+
+   ```powershell
+   Invoke-RestMethod http://localhost:8000/health
+   ```
+
+### Local URLs
+
+- Buyer storefront: <http://localhost:3000>
+- Seller portal: <http://localhost:3000/seller>
+- Delivery portal: <http://localhost:3000/delivery>
+- Admin console: <http://localhost:3000/admin>
+- API documentation: <http://localhost:8000/docs>
+- Health endpoint: <http://localhost:8000/health>
+
+The seed script gives every seeded account the password `KavachDemo@2026`. Useful
+accounts include:
+
+| Role | Email |
+|---|---|
+| Buyer | `b-001@buyer.kavachsaathi.test` |
+| Seller | `s-001@seller.kavachsaathi.test` |
+| Admin | `admin@kavachsaathi.test` |
+
+Create a delivery-person account from the storefront signup form; successful login or
+signup redirects that role to `/delivery`.
+
+### Common Docker commands
 
 ```bash
-cp .env.example .env
-docker compose up --build
+# Follow application logs
+docker compose logs -f backend worker frontend
+
+# Stop containers while keeping database/model-cache volumes
+docker compose down
+
+# Rebuild after dependency or Dockerfile changes
+docker compose up -d --build
+
+# Apply new migrations
+docker compose run --rm backend alembic upgrade head
 ```
 
-Open the storefront at <http://localhost:3000>, the seller portal at
-<http://localhost:3000/seller>, the delivery portal at
-<http://localhost:3000/delivery>, the admin console at <http://localhost:3000/admin>,
-and API docs at <http://localhost:8000/docs>.
+On Windows, `scripts/refresh_local.ps1` can copy source changes into existing
+containers, apply migrations, restart the application services, and wait for health:
 
-For separate development processes:
+```powershell
+.\scripts\refresh_local.ps1
+```
+
+### Alternative: run application processes on the host
+
+This path requires Python 3.11+, [uv](https://docs.astral.sh/uv/), Node.js 20+,
+PostgreSQL, and Redis. You can use the Compose databases while running FastAPI and
+Next.js directly:
 
 ```bash
-cp .env.example .env
+docker compose up -d postgres redis
 uv sync --extra dev
-uv run alembic upgrade head
 npm --prefix web ci
+uv run alembic upgrade head
+uv run python scripts/generate_seed_data.py
+```
+
+Then run these in separate terminals:
+
+```bash
+# Terminal 1: FastAPI; demo-mode event consumers run in this process
 uv run uvicorn kavach_saathi.app:app --reload --port 8000
+
+# Terminal 2: Next.js
 npm --prefix web run dev
 ```
 
-Run checks with `uv run pytest`, `uv run ruff check .`, `npm --prefix web run lint`,
-and `npm --prefix web run build` — the same checks CI runs on every push (see
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+### Run checks
 
-## Attribution
+```bash
+uv run pytest
+uv run ruff check .
+npm --prefix web run lint
+npm --prefix web run build
+npx --prefix web playwright install chromium   # first browser-test run only
+npm --prefix web run e2e
+```
 
-Third-party packages retain their respective licenses; see
-[THIRD_PARTY.md](THIRD_PARTY.md) for the full list of what's used where.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for production configuration and deployment details.
+
+## Open Source Attributions
+
+This inventory covers the direct dependencies declared by this repository and the
+open-source runtimes explicitly used by its Docker deployment. Python dependencies
+use the supported ranges in `pyproject.toml` because the project does not commit a
+Python lockfile; exact JavaScript versions come from `web/package-lock.json`. Indirect
+dependencies retain their own notices in the installed distributions and lockfile.
+Commercial APIs and hosted services are intentionally excluded from this open-source
+list.
+
+### Platform and infrastructure
+
+| Name & version | License | Role in the build | Source |
+|---|---|---|---|
+| Python 3.13 (`python:3.13-slim`) | PSF License | Backend and worker runtime | [python/cpython](https://github.com/python/cpython) |
+| Node.js 22 (`node:22-alpine`) | MIT + bundled third-party notices | Next.js build and production runtime | [nodejs/node](https://github.com/nodejs/node) |
+| PostgreSQL 16 (`postgres:16-alpine`) | PostgreSQL License | Authoritative relational store and full-text search | [postgres/postgres](https://github.com/postgres/postgres) |
+| Redis 7 (`redis:7-alpine`) | BSD-3-Clause through 7.2; RSALv2/SSPLv1 for 7.4–7.8 | Cache, workflow state, Redis Streams, retries, and dead-letter queues | [redis/redis](https://github.com/redis/redis) |
+| Caddy 2 (`caddy:2-alpine`) | Apache-2.0 | TLS termination, compression, and reverse proxy | [caddyserver/caddy](https://github.com/caddyserver/caddy) |
+| Docker Engine 29.6.1 | Apache-2.0 | Local and production container runtime | [moby/moby](https://github.com/moby/moby) |
+| Docker Compose 5.3.0 | Apache-2.0 | Multi-service orchestration | [docker/compose](https://github.com/docker/compose) |
+| Git 2.41.0 | GPL-2.0-only | Source control and deployment revision tracking | [git/git](https://github.com/git/git) |
+| uv (un-pinned developer tool) | Apache-2.0 OR MIT | Python environment and task runner used by setup/check commands | [astral-sh/uv](https://github.com/astral-sh/uv) |
+| Hatchling (un-pinned build backend) | MIT | Builds the Python package | [pypa/hatch](https://github.com/pypa/hatch) |
+
+The floating Docker tags above describe the repository configuration. Production
+operators should pin image digests when reproducible builds are required. In
+particular, Redis licensing depends on the resolved 7.x image release.
+
+### Backend and AI runtime (Python)
+
+| Name & supported version | License | Role in the build | Source |
+|---|---|---|---|
+| Accelerate `>=1.1,<2` | Apache-2.0 | Device placement and efficient Hugging Face model execution | [huggingface/accelerate](https://github.com/huggingface/accelerate) |
+| Alembic `>=1.13,<2` | MIT | PostgreSQL schema migrations | [sqlalchemy/alembic](https://github.com/sqlalchemy/alembic) |
+| Anthropic SDK `>=0.40,<1` | MIT | Declared compatibility SDK; no active provider is wired in the current runtime | [anthropics/anthropic-sdk-python](https://github.com/anthropics/anthropic-sdk-python) |
+| bcrypt `>=4.2,<5` | Apache-2.0 | Password hashing | [pyca/bcrypt](https://github.com/pyca/bcrypt) |
+| boto3 `>=1.35,<2` | Apache-2.0 | Optional S3/R2-compatible media and AWS integration | [boto/boto3](https://github.com/boto/boto3) |
+| Diffusers `>=0.31,<1` | Apache-2.0 | Stable Diffusion and ControlNet catalogue-generation fallback | [huggingface/diffusers](https://github.com/huggingface/diffusers) |
+| FastAPI `>=0.115,<1` | MIT | HTTP API, validation integration, and OpenAPI generation | [fastapi/fastapi](https://github.com/fastapi/fastapi) |
+| Google Cloud Vision `>=3.8,<4` | Apache-2.0 | SDK support for catalogue-photo web detection | [googleapis/python-vision](https://github.com/googleapis/python-vision) |
+| Google Gen AI `>=1.0,<2` | Apache-2.0 | Gemini multimodal reasoning and image generation | [googleapis/python-genai](https://github.com/googleapis/python-genai) |
+| Gradio Client `>=1.6,<2` | Apache-2.0 | Calls the FASHN Hugging Face Space fallback | [gradio-app/gradio](https://github.com/gradio-app/gradio) |
+| Groq SDK `>=0.18,<1` | Apache-2.0 | Text and vision reasoning-provider fallback | [groq/groq-python](https://github.com/groq/groq-python) |
+| HTTPX `>=0.27,<1` | BSD-3-Clause | Async HTTP transport for external providers | [encode/httpx](https://github.com/encode/httpx) |
+| Indic NLP Library `>=0.92,<1` | MIT | Indic-script address normalization | [anoopkunchukuttan/indic_nlp_library](https://github.com/anoopkunchukuttan/indic_nlp_library) |
+| LangGraph `>=0.2,<1` | MIT | Stateful workflows and agent coordination | [langchain-ai/langgraph](https://github.com/langchain-ai/langgraph) |
+| Mangum `>=0.19,<1` | MIT | Optional ASGI-to-AWS-Lambda adapter | [Kludex/mangum](https://github.com/Kludex/mangum) |
+| NumPy `>=1.26,<3` | BSD-3-Clause | Numerical arrays, embeddings, and similarity calculations | [numpy/numpy](https://github.com/numpy/numpy) |
+| OpenCV Python Headless `>=4.10,<5` | Apache-2.0 | Video-frame extraction and image-quality analysis | [opencv/opencv-python](https://github.com/opencv/opencv-python) |
+| Pillow `>=11,<13` | HPND | Image decoding, conversion, and composition | [python-pillow/Pillow](https://github.com/python-pillow/Pillow) |
+| Pinecone SDK `>=5.0,<6` | Apache-2.0 | Vector retrieval for size and grounded Q&A workflows | [pinecone-io/pinecone-python-client](https://github.com/pinecone-io/pinecone-python-client) |
+| Psycopg 3 `>=3.2,<4` | LGPL-3.0-only | PostgreSQL driver and binary distribution | [psycopg/psycopg](https://github.com/psycopg/psycopg) |
+| Pydantic `>=2.9,<3` | MIT | API schemas, structured model outputs, and validation | [pydantic/pydantic](https://github.com/pydantic/pydantic) |
+| Pydantic Settings `>=2.6,<3` | MIT | Typed environment configuration | [pydantic/pydantic-settings](https://github.com/pydantic/pydantic-settings) |
+| PyJWT `>=2.9,<3` | MIT | Access and refresh token encoding/validation | [jpadilla/pyjwt](https://github.com/jpadilla/pyjwt) |
+| python-multipart `>=0.0.12,<1` | Apache-2.0 | Multipart request parsing for FastAPI uploads/forms | [Kludex/python-multipart](https://github.com/Kludex/python-multipart) |
+| Razorpay SDK `>=1.4,<2` | MIT | Sandbox prepaid order and signature handling | [razorpay/razorpay-python](https://github.com/razorpay/razorpay-python) |
+| redis-py `>=5.1,<6` | MIT | Redis cache, idempotency, OTP state, and Streams client | [redis/redis-py](https://github.com/redis/redis-py) |
+| Safetensors `>=0.4,<1` | Apache-2.0 | Safe tensor checkpoint loading | [huggingface/safetensors](https://github.com/huggingface/safetensors) |
+| Sentence Transformers `>=3.0,<4` | Apache-2.0 | Text embeddings for review, size, and Q&A retrieval | [huggingface/sentence-transformers](https://github.com/huggingface/sentence-transformers) |
+| setuptools `>=75,<81` | MIT | Python packaging/runtime compatibility | [pypa/setuptools](https://github.com/pypa/setuptools) |
+| SQLAlchemy `>=2.0,<3` | MIT | ORM, transactions, and query construction | [sqlalchemy/sqlalchemy](https://github.com/sqlalchemy/sqlalchemy) |
+| Transformers `>=4.51,<5` | Apache-2.0 | CLIP, BERT, and SAM model loading/inference | [huggingface/transformers](https://github.com/huggingface/transformers) |
+| Twilio SDK `>=9.0,<10` | MIT | Voice, WhatsApp, Verify, and phone workflows | [twilio/twilio-python](https://github.com/twilio/twilio-python) |
+| PyTorch `>=2.5,<3` (container: `2.13.0`) | BSD-3-Clause + bundled component licenses | CPU tensor and neural-network runtime | [pytorch/pytorch](https://github.com/pytorch/pytorch) |
+| TorchVision `>=0.20,<1` (container: `0.28.0`) | BSD-3-Clause | ResNet-50 and vision preprocessing | [pytorch/vision](https://github.com/pytorch/vision) |
+| Uvicorn `>=0.32,<1` | BSD-3-Clause | Production/development ASGI server | [encode/uvicorn](https://github.com/encode/uvicorn) |
+
+### Frontend and quality tooling
+
+| Name & resolved version | License | Role in the build | Source |
+|---|---|---|---|
+| Next.js `16.2.10` | MIT | App Router web application, server rendering, and API proxy | [vercel/next.js](https://github.com/vercel/next.js) |
+| React `19.2.7` | MIT | Component and state model | [facebook/react](https://github.com/facebook/react) |
+| React DOM `19.2.7` | MIT | Browser rendering | [facebook/react](https://github.com/facebook/react) |
+| Lucide React `1.24.0` | ISC | Interface iconography | [lucide-icons/lucide](https://github.com/lucide-icons/lucide) |
+| PostCSS `8.5.10` | MIT | CSS transformation used by the frontend toolchain | [postcss/postcss](https://github.com/postcss/postcss) |
+| Playwright Test `1.61.1` | Apache-2.0 | Browser-level buyer, seller, delivery, and admin journeys | [microsoft/playwright](https://github.com/microsoft/playwright) |
+| ESLint `9.39.5` | MIT | JavaScript and React linting | [eslint/eslint](https://github.com/eslint/eslint) |
+| eslint-config-next `16.2.10` | MIT | Next.js-specific lint rules | [vercel/next.js](https://github.com/vercel/next.js) |
+| pytest `>=8.3,<9` | MIT | Backend test runner | [pytest-dev/pytest](https://github.com/pytest-dev/pytest) |
+| pytest-asyncio `>=0.24,<1` | Apache-2.0 | Async workflow and API tests | [pytest-dev/pytest-asyncio](https://github.com/pytest-dev/pytest-asyncio) |
+| Ruff `>=0.8,<1` | MIT | Python linting and import/style checks | [astral-sh/ruff](https://github.com/astral-sh/ruff) |
+
+### Project-specific attribution
+
+- The DIGIPIN implementation is based on the Department of Posts reference algorithm.
+- The storefront journey was informed by the reference recorded in
+  [web/ATTRIBUTION.md](web/ATTRIBUTION.md). The implementation and synthetic assets in
+  this repository were created independently.
+- Model checkpoints and external API services retain their own model-card and service
+  terms.
+
+All third-party components remain subject to their respective licenses. This table is
+an engineering inventory, not legal advice and not a replacement for upstream license
+texts or notices.

@@ -61,6 +61,22 @@ def _invalidate_size_popularity(product_id: str) -> None:
         pass
 
 
+def _has_verified_catalogue_images(session: Session, product_id: str) -> bool:
+    """A buyer-visible listing requires all four generated catalogue angles."""
+    from sqlalchemy import func
+
+    verified_count = session.scalar(
+        select(func.count())
+        .select_from(ProductImage)
+        .where(
+            ProductImage.product_id == product_id,
+            ProductImage.angle.in_(("front", "back", "left", "right")),
+            ProductImage.is_verified.is_(True),
+        )
+    )
+    return (verified_count or 0) >= 4
+
+
 def _seller_profile(session: Session, user: User) -> SellerProfile:
     profile = session.get(SellerProfile, user.id)
     if not profile:
@@ -458,8 +474,11 @@ async def publish_seller_product(
     product.price = payload.price
     product.original_price = payload.original_price
     product.seller_corrections = payload.seller_corrections
-    product.activation_timestamp = datetime.now(UTC)
-    product.status = "active"
+    images_verified = _has_verified_catalogue_images(session, product_id)
+    product.activation_timestamp = datetime.now(UTC) if images_verified else None
+    # Failed/pending model generation must remain in the seller's pending inventory
+    # and must not leak into the buyer storefront, whose query only returns `active`.
+    product.status = "active" if images_verified else "pending_review"
 
     # Save specifications
     structured_specs = {item.key: item.value for item in payload.specifications}

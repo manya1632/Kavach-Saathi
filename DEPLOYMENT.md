@@ -156,7 +156,7 @@ Why this wins on every stated requirement:
    ```bash
    docker compose exec -T postgres pg_dump -U kavach kavach_saathi | gzip > /backups/$(date +%F).sql.gz
    ```
-   then sync to R2 with `rclone` (free). Your `scripts/verify_backup.ps1` logic has a Linux equivalent in RUNBOOK.md.
+   then sync to R2 with `rclone` (free). Use `scripts/verify_backup.ps1` to validate local backup integrity.
 2. **Deploys**: `git pull && docker compose build && docker compose up -d` — or add a GitHub Actions job that SSHes in and runs exactly that on push to `main` (repo already has Actions CI).
 3. **Log/rotation**: `docker compose logs` + json-file log rotation (`max-size: 10m`) in a compose override.
 

@@ -80,7 +80,7 @@ JWT access (short-lived) + refresh (rotating, hashed at rest) tokens issued from
 `auth.py`, bcrypt password hashing, three roles (`buyer`, `seller`, `admin`) sharing
 one `users` table. `require_role(...)` guards seller (`seller_api.py`) and admin
 (`admin_api.py`) routes. There is no public admin signup endpoint — the only admin
-account is the seeded `ADMIN-001` (see `RUNBOOK.md`); this is intentional, not an
+account is the seeded `ADMIN-001`; this is intentional, not an
 oversight, since a self-service admin signup would be a real privilege-escalation hole.
 
 ## Provider selection

@@ -146,7 +146,7 @@ def test_voice_size_query_routes_through_two_agents(client) -> None:
 def test_irrelevant_review_hides_only_media(client) -> None:
     """Agent 4 no longer reads the expected_relevant/similarity_score fixture-cheat
     fields (gap_report B4) -- CLIP/BERT scores are mocked here to drive a deterministic
-    outcome; the real, unmocked pipeline is verified separately (see RUNBOOK.md)."""
+    outcome; the real, unmocked pipeline is verified separately."""
     from unittest.mock import patch
 
     fake_scores = {"clip_image_text_similarity": 0.05, "bert_text_relevance": 0.8}
@@ -272,8 +272,7 @@ def test_address_verification_degrades_honestly_without_geocoder(client) -> None
 def test_return_threshold_paths(client) -> None:
     """Agent 8 no longer reads the evidence/expected_confidence fixture-cheat fields
     (gap_report Y9) -- CLIP/ResNet similarity is mocked here to drive each threshold
-    deterministically; the real, unmocked pipeline is verified separately (see
-    RUNBOOK.md)."""
+    deterministically; the real, unmocked pipeline is verified separately."""
     from unittest.mock import patch
 
     best_match_target = "kavach_saathi.providers.return_vision.ReturnVisionVerifier.best_match"

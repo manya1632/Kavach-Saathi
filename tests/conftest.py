@@ -121,8 +121,7 @@ def mock_catalogue_generation():
     15-70+ CPU-minutes per call -- routine tests that don't specifically exercise that
     pipeline should request this fixture rather than hit it for real. Pipeline
     correctness is covered separately by test_catalogue_generation.py (mocked
-    orchestration logic), test_catalogue_agent_integration.py (DB write path), and a
-    real end-to-end run documented in RUNBOOK.md.
+    orchestration logic) and test_catalogue_agent_integration.py (DB write path).
     """
     target = "kavach_saathi.providers.media.CatalogueImageGenerator.generate"
     with patch(target, new=AsyncMock(return_value=MOCK_CATALOGUE_VIEWS)):
@@ -159,8 +158,7 @@ def mock_spec_vision():
     """Agent 2's CLIP + ResNet-50 + SAM 2.0-backed color extraction takes ~30-60s of
     real CPU inference per call. Routine tests that don't specifically exercise that
     pipeline should request this fixture. Correctness is covered separately by
-    test_spec_enforcer.py (mocked orchestration logic) and a real, visually-verified
-    run documented in RUNBOOK.md.
+    test_spec_enforcer.py (mocked orchestration logic).
     """
     target = "kavach_saathi.providers.spec_vision.FabricVisionClassifier.classify"
     with patch(target, return_value=MOCK_CV_RESULT):

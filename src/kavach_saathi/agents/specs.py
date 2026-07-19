@@ -48,7 +48,13 @@ class SpecEnforcerAgent(Agent):
         settings = get_settings()
         product = self.context.repository.get("products", request.product_id)
 
-        images = [await read_image_bytes(key, settings) for key in request.image_keys]
+        # Image-first listings store dedicated catalogue/label/tag photos separately
+        # from product photos. OCR only those dedicated images when present; sending
+        # the plain garment photo first made small GSM and wash-care text much easier
+        # for a multimodal model to overlook even though the seller uploaded a clear
+        # label photo. Direct /listings/analyze callers retain the original fallback.
+        catalogue_keys = product.get("catalogue_images") or request.image_keys
+        images = [await read_image_bytes(key, settings) for key in catalogue_keys]
 
         ocr_error: str | None = None
         try:

@@ -80,6 +80,38 @@ def test_extraction_success_activates_listing_and_logs_real_confidence(client) -
         assert log.confidence > 0
 
 
+def test_spec_ocr_prefers_uploaded_catalogue_label_images(client) -> None:
+    _reset_product_p001()
+    label_keys = ["uploads/catalogue/care-front.png", "uploads/catalogue/care-back.png"]
+    with SessionLocal() as session:
+        product = session.get(Product, "P-001")
+        original_keys = list(product.catalogue_images or [])
+        product.catalogue_images = label_keys
+        session.commit()
+
+    extracted = ExtractedSpec(
+        fabric="Cotton", gsm=180, color_hex="#800000", wash_care="Machine wash cold", label_visible=True
+    )
+    read_mock = AsyncMock(return_value=b"catalogue-label-image")
+    try:
+        with (
+            patch("kavach_saathi.agents.specs.read_image_bytes", new=read_mock),
+            patch(OCR_TARGET, new=AsyncMock(return_value=extracted)),
+            patch(CV_TARGET, return_value=CV_COTTON_MAROON),
+        ):
+            response = client.post("/v1/agents/spec-enforcer/extract", json={"product_id": "P-001"})
+
+        assert response.status_code == 200
+        assert response.json()["spec_json"]["gsm"] == 180
+        assert response.json()["spec_json"]["wash_care"] == "Machine wash cold"
+        assert [call.args[0] for call in read_mock.await_args_list] == label_keys
+    finally:
+        with SessionLocal() as session:
+            product = session.get(Product, "P-001")
+            product.catalogue_images = original_keys
+            session.commit()
+
+
 def test_ocr_failure_completes_from_already_declared_specs_when_they_agree(client) -> None:
     """OCR found nothing on the label at all, but the product's already-declared specs
     (from a prior seller_form submission) agree with CV -- there's no genuine

@@ -2295,7 +2295,12 @@ export default function Storefront({ initialProductId = null }) {
     setToast(`Welcome, ${session.user.name}`);
     setPendingAfterAuth(null);
     if (session.user.role === "delivery_boy") {
-      router.push("/delivery");
+      // Delivery authentication is completed on the buyer-facing storefront, but
+      // its session is stored under the delivery portal's role-specific key. A hard
+      // replacement guarantees the destination mounts after the new session has
+      // been committed and prevents the storefront from remaining in browser
+      // history after either login or verified/unverified signup.
+      window.location.replace("/delivery");
       return;
     }
     if (session.user.role === "seller") {

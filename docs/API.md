@@ -12,7 +12,7 @@ committed snapshot of the same contract.
 
 | Method | Path | Notes |
 |---|---|---|
-| `POST` | `/v1/auth/signup` | `role` is `buyer` or `seller` only — there is no public admin signup (see `RUNBOOK.md`). Returns `{access_token, refresh_token, user}`. |
+| `POST` | `/v1/auth/signup` | `role` is `buyer` or `seller` only — there is no public admin signup. Returns `{access_token, refresh_token, user}`. |
 | `POST` | `/v1/auth/login` | `{identifier, password}`, identifier is email or phone. |
 | `POST` | `/v1/auth/refresh` | Rotates the refresh token; the presented token is revoked and cannot be reused. |
 | `GET` | `/v1/auth/me` | Bearer token required. |
@@ -97,7 +97,7 @@ then calls back into these webhooks — they exist for Twilio, not for frontend 
 | `POST` | `/v1/twilio/status/{order_id}` | Call status callback (answered/no-answer/busy/failed) — drives the WhatsApp fallback. |
 
 `PUBLIC_BASE_URL` (an ngrok tunnel in local dev) must point at this backend for Twilio
-to reach these routes; see `RUNBOOK.md`.
+to reach these routes.
 
 ## Seller portal (seller role)
 
@@ -127,7 +127,7 @@ again (as the seller-portal rows above just had), use the interactive Swagger UI
 
 ## Admin console (admin role)
 
-Only the seeded `ADMIN-001` account can authenticate as admin (see `RUNBOOK.md`).
+Only the seeded `ADMIN-001` account can authenticate as admin.
 
 | Method | Path | Notes |
 |---|---|---|
@@ -148,14 +148,14 @@ Only the seeded `ADMIN-001` account can authenticate as admin (see `RUNBOOK.md`)
 
 ## Golden demo IDs
 
-Stable seeded IDs for a scripted walkthrough (see `RUNBOOK.md` for the full sequence):
+Stable seeded IDs available for demonstrations:
 
 - Buyer: `B-001` (Sunita, Hindi preference)
 - Seller: `S-001`
 - Product: `P-001` (Maroon Floral Cotton Kurta)
 - Order: `O-GOLDEN`
 - Matching review: `RV-GOOD`; irrelevant-media review: `RV-BAD`
-- Admin: `admin@kavachsaathi.test` (see `RUNBOOK.md` for the password)
+- Admin: `admin@kavachsaathi.test`
 
 ## UI conventions for anyone integrating against this API
 

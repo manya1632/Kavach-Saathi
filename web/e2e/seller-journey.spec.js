@@ -41,7 +41,6 @@ test("seller can sign up and start a real listing (Agent 1 + 2 pipeline)", async
   // pipeline was genuinely queued and is polling (the progress message only appears
   // once the product POST + presigned upload both succeeded for real). Full
   // completion is covered by pytest's
-  // test_listing_analyze_persists_real_agent_logs_and_product_images and the manual
-  // RUNBOOK.md walkthrough.
+  // test_listing_analyze_persists_real_agent_logs_and_product_images.
   await expect(page.getByText(/Agent pipeline is extracting specs|Initializing listing/)).toBeVisible({ timeout: 30_000 });
 });

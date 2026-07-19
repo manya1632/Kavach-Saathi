@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import builtins
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -8,11 +9,56 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from kavach_saathi.config import Settings
+from kavach_saathi.providers.fashn_api import FashnApiClient
 from kavach_saathi.providers.fashn_vton import FashnVtonClient, FashnVtonUnavailable
 from kavach_saathi.providers.image_quality import ImageQualityAssessor
 from kavach_saathi.providers.stolen_photo import GoogleVisionReverseImageSearch, GoogleVisionUnavailable
 
 _SAMPLE_IMAGE = Path(__file__).resolve().parent.parent / "assets" / "mock" / "products" / "P-001.png"
+
+
+def test_all_fashn_base_model_photos_are_bundled() -> None:
+    base_dir = Path(__file__).resolve().parent.parent / "assets" / "model_base"
+    expected = {f"{prefix}_{view}.png" for prefix in "bfmg" for view in ("front", "back", "left", "right")}
+    assert {path.name for path in base_dir.glob("*.png")} == expected
+
+
+def test_paid_fashn_request_and_polling_contract_without_spending_credits(monkeypatch) -> None:
+    generated = b"generated-image-bytes"
+    run_response = MagicMock()
+    run_response.raise_for_status = MagicMock()
+    run_response.json.return_value = {"id": "prediction-1", "error": None}
+    queued_response = MagicMock()
+    queued_response.raise_for_status = MagicMock()
+    queued_response.json.return_value = {"id": "prediction-1", "status": "processing", "error": None}
+    complete_response = MagicMock()
+    complete_response.raise_for_status = MagicMock()
+    complete_response.json.return_value = {
+        "id": "prediction-1",
+        "status": "completed",
+        "output": ["data:image/png;base64," + base64.b64encode(generated).decode("ascii")],
+        "error": None,
+    }
+
+    fake_client = MagicMock()
+    fake_client.__enter__.return_value = fake_client
+    fake_client.__exit__.return_value = False
+    fake_client.post.return_value = run_response
+    fake_client.get.side_effect = [queued_response, complete_response]
+    monkeypatch.setattr("httpx.Client", lambda **_kwargs: fake_client)
+    monkeypatch.setattr("kavach_saathi.providers.fashn_api.time.sleep", lambda _seconds: None)
+
+    result = FashnApiClient(Settings(fashn_api_key="test-key"))._generate_view_sync(
+        _SAMPLE_IMAGE.read_bytes(), "front", "woman", "one-pieces"
+    )
+
+    assert result == generated
+    request_payload = fake_client.post.call_args.kwargs["json"]
+    assert request_payload["model_name"] == "tryon-v1.6"
+    assert request_payload["inputs"]["category"] == "one-pieces"
+    assert request_payload["inputs"]["garment_photo_type"] == "flat-lay"
+    assert request_payload["inputs"]["return_base64"] is True
+    assert fake_client.get.call_count == 2
 
 
 def test_image_quality_assessor_scores_a_real_photo() -> None:

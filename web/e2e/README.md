@@ -27,10 +27,8 @@ Set `E2E_BASE_URL` if the frontend isn't on the default `http://localhost:3000`.
   real SAM2/CLIP/ResNet-50/Stable Diffusion inference takes real CPU minutes, which
   would make this suite too slow to run routinely. The full real run is covered by
   `tests/test_catalogue_agent_integration.py` (mocked at the heavy-model boundary,
-  DB/response contract verified for real) and the manual walkthrough in
-  `../../RUNBOOK.md`.
+  with the DB/response contract verified for real).
 - The real Twilio WhatsApp confirmation and return-evidence upload aren't driven through
-  the browser here — they're covered by `tests/test_delivery_confirmation.py` /
-  `tests/test_api_workflows.py::test_return_threshold_paths` and RUNBOOK.md's manual
-  walkthrough, since both need real external state (a phone, a video file) a browser
-  automation script can't provide.
+  the browser here — they're covered by `tests/test_delivery_confirmation.py` and
+  `tests/test_api_workflows.py::test_return_threshold_paths`, since both need real
+  external state (a phone or video file) that browser automation cannot provide.

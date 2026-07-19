@@ -755,6 +755,12 @@ class CommerceRepository:
                 product = session.get(Product, product_id)
                 if product:
                     product.media_primary = front_key
+                    # A seller may finish the form while image generation is still
+                    # running. Promote that explicitly pending listing only after all
+                    # four generated views have been persisted and verified.
+                    if product.status == "pending_review" and len(images) >= 4:
+                        product.status = "active"
+                        product.activation_timestamp = datetime.now(UTC)
             session.commit()
 
     def set_stolen_photo_flag(self, product_id: str, flagged: bool) -> None:

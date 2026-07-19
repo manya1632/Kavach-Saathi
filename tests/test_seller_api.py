@@ -77,6 +77,46 @@ def test_seller_can_create_product_and_variant(client) -> None:
     assert variant.json()["stock_qty"] == 20
 
 
+def test_unverified_published_product_stays_pending_and_off_storefront(client) -> None:
+    token, _ = _signup_seller(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    created = client.post(
+        "/v1/seller/products",
+        headers=headers,
+        json={
+            "title": "Pending Model Photos",
+            "category": "Women Western",
+            "price": 499,
+            "original_price": 999,
+            "image_keys": ["assets/mock/products/P-001.png"],
+        },
+    )
+    product_id = created.json()["id"]
+
+    published = client.post(
+        f"/v1/seller/products/{product_id}/publish",
+        headers=headers,
+        json={
+            "title": "Pending Model Photos",
+            "category": "Women Western",
+            "price": 499,
+            "original_price": 999,
+            "size_chart": [{"size": "M", "dimensions_cm": {"chest": 90}, "stock_qty": 2}],
+        },
+    )
+
+    assert published.status_code == 200
+    assert published.json()["status"] == "pending_review"
+    inventory = client.get("/v1/seller/products", headers=headers).json()
+    assert next(item for item in inventory if item["id"] == product_id)["images_verified"] is False
+    storefront = client.get("/v1/storefront/products").json()["items"]
+    assert all(item["id"] != product_id for item in storefront)
+
+    deleted = client.delete(f"/v1/seller/products/{product_id}", headers=headers)
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted"] is True
+
+
 def test_seller_cannot_update_another_sellers_product(client) -> None:
     token_a, _ = _signup_seller(client)
     token_b, _ = _signup_seller(client)

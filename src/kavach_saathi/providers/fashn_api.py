@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import time
+from urllib.parse import unquote_to_bytes
 
 from kavach_saathi.config import Settings
 from kavach_saathi.providers.fashn_vton import BASE_MODEL_DIR, PREFIX_BY_TARGET
@@ -10,6 +11,7 @@ from kavach_saathi.providers.fashn_vton import BASE_MODEL_DIR, PREFIX_BY_TARGET
 _BASE_URL = "https://api.fashn.ai/v1"
 _POLL_INTERVAL_SECONDS = 2
 _POLL_TIMEOUT_SECONDS = 60
+_IN_PROGRESS_STATUSES = {"starting", "in_queue", "processing"}
 
 
 class FashnApiUnavailable(RuntimeError):
@@ -18,6 +20,26 @@ class FashnApiUnavailable(RuntimeError):
 
 def _data_uri(image_bytes: bytes) -> str:
     return "data:image/png;base64," + base64.b64encode(image_bytes).decode()
+
+
+def _decode_output(output: str, client) -> bytes:
+    """Accept both documented FASHN output forms.
+
+    `return_base64=true` normally returns a data URI, while the default response is
+    a short-lived CDN URL. Supporting both keeps a successful paid generation from
+    being discarded if FASHN returns a URL despite the privacy preference.
+    """
+    if output.startswith("data:"):
+        try:
+            header, encoded = output.split(",", 1)
+            return base64.b64decode(encoded, validate=True) if ";base64" in header else unquote_to_bytes(encoded)
+        except (ValueError, TypeError) as exc:
+            raise FashnApiUnavailable("FASHN returned an invalid image data URI") from exc
+    if output.startswith(("https://", "http://")):
+        response = client.get(output)
+        response.raise_for_status()
+        return response.content
+    raise FashnApiUnavailable("FASHN completed without a usable image output")
 
 
 class FashnApiClient:
@@ -82,7 +104,9 @@ class FashnApiClient:
                 run_data = run_response.json()
                 if run_data.get("error"):
                     raise FashnApiUnavailable(str(run_data["error"]))
-                prediction_id = run_data["id"]
+                prediction_id = run_data.get("id")
+                if not prediction_id:
+                    raise FashnApiUnavailable("FASHN did not return a prediction id")
 
                 deadline = time.monotonic() + _POLL_TIMEOUT_SECONDS
                 while time.monotonic() < deadline:
@@ -92,9 +116,11 @@ class FashnApiClient:
                     status_data = status_response.json()
                     status = status_data.get("status")
                     if status == "completed":
-                        output = status_data["output"][0]
-                        return base64.b64decode(output.split(",", 1)[1])
-                    if status not in ("starting", "in_queue", "processing"):
+                        outputs = status_data.get("output") or []
+                        if not outputs:
+                            raise FashnApiUnavailable("FASHN completed without an image output")
+                        return _decode_output(outputs[0], client)
+                    if status not in _IN_PROGRESS_STATUSES:
                         raise FashnApiUnavailable(str(status_data.get("error") or status))
                 raise FashnApiUnavailable("Timed out waiting for FASHN API prediction")
         except httpx.HTTPError as exc:

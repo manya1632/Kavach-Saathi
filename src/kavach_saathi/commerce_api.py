@@ -772,7 +772,11 @@ async def list_my_orders(
         }
         if product_ids and order.status in POST_DELIVERY_STATUSES:
             for rv in session.execute(
-                select(Review).where(Review.buyer_id == user.id, Review.product_id.in_(product_ids))
+                select(Review).where(
+                    Review.buyer_id == user.id,
+                    Review.order_id == order.id,
+                    Review.product_id.in_(product_ids),
+                )
             ).scalars():
                 reviewed_products.add(rv.product_id)
 
@@ -1181,14 +1185,20 @@ async def create_review(
             status_code=400, detail="You can only review products you have purchased and had delivered."
         )
 
-    # Check for duplicate review by the same buyer for this product
+    # Check for duplicate review by the same buyer for this product in this order
     duplicate = (
-        session.execute(select(Review).where(Review.buyer_id == user.id, Review.product_id == payload.product_id))
+        session.execute(
+            select(Review).where(
+                Review.buyer_id == user.id,
+                Review.order_id == payload.order_id,
+                Review.product_id == payload.product_id,
+            )
+        )
         .scalars()
         .first()
     )
     if duplicate:
-        raise HTTPException(status_code=409, detail="You have already submitted a review for this product.")
+        raise HTTPException(status_code=409, detail="You have already submitted a review for this product in this order.")
 
     # Fetch image bytes for verification
     from kavach_saathi.media_storage import read_image_bytes

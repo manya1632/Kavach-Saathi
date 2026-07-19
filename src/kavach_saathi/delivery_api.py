@@ -138,6 +138,10 @@ async def list_assigned_deliveries(
         .join(User, Order.buyer_id == User.id)
         .where(
             ~Order.id.like("O-RV-%"),
+            ~Order.id.like("O-___"),
+            Order.id != "O-GOLDEN",
+            ~Order.id.like("O-TEST-%"),
+            ~Order.id.like("O-CHAR-%"),
             Order.status.in_(
                 [
                     OrderStatus.DELIVERY_SCHEDULED,
@@ -383,6 +387,10 @@ async def list_assigned_returns(
         .join(User, ReturnRecord.buyer_id == User.id)
         .where(
             ~Order.id.like("O-RV-%"),
+            ~Order.id.like("O-___"),
+            Order.id != "O-GOLDEN",
+            ~Order.id.like("O-TEST-%"),
+            ~Order.id.like("O-CHAR-%"),
             ReturnRecord.status.in_(
                 [
                     "pickup_assigned",

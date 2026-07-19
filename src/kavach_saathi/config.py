@@ -96,7 +96,7 @@ class Settings(BaseSettings):
     groq_api_key: str | None = None
     external_secret_arn: str | None = None
     groq_model: str = "openai/gpt-oss-120b"
-    groq_vision_model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
+    groq_vision_model: str = "qwen/qwen3.6-27b"
     groq_reasoning_effort: Literal["low", "medium", "high"] = "medium"
     reasoning_mode: Literal["demo", "groq"] = "demo"
 

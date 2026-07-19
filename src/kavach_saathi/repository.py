@@ -412,12 +412,16 @@ class CommerceRepository:
     def buyer_orders(self, buyer_id: str) -> list[dict[str, Any]]:
         with self._session() as session:
             orders = session.execute(select(Order).where(Order.buyer_id == buyer_id)).scalars().all()
-            items_by_order: dict[str, OrderItem] = {}
+            items_by_order: dict[str, list[OrderItem]] = {}
             if orders:
                 order_ids = [o.id for o in orders]
                 for item in session.execute(select(OrderItem).where(OrderItem.order_id.in_(order_ids))).scalars():
-                    items_by_order.setdefault(item.order_id, item)
-            return [_order_dict(order, items_by_order.get(order.id)) for order in orders]
+                    items_by_order.setdefault(item.order_id, []).append(item)
+            return [
+                _order_dict(order, item)
+                for order in orders
+                for item in (items_by_order.get(order.id) or [None])
+            ]
 
     def get_product_size_popularity(self, product_id: str) -> dict[str, Any] | None:
         import json

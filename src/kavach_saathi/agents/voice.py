@@ -13,7 +13,7 @@ from kavach_saathi.agent_logging import log_agent_call
 from kavach_saathi.agents.base import Agent
 from kavach_saathi.config import get_settings
 from kavach_saathi.db.base import SessionLocal
-from kavach_saathi.media_storage import read_image_bytes, write_generated_image
+from kavach_saathi.media_storage import media_url, read_image_bytes, write_generated_image
 from kavach_saathi.models import AgentName, AgentResult, Evidence, VoiceQueryRequest
 from kavach_saathi.providers.reasoning import ReasoningUnavailable
 from kavach_saathi.providers.sarvam import SarvamClient, SarvamUnavailable
@@ -509,6 +509,7 @@ class VoiceQAAgent(Agent):
             data={
                 "transcript": transcript,
                 "audio_key": audio_key,
+                "audio_url": media_url(audio_key, settings) if audio_key else None,
                 "language": response_language,
                 "rag_error": rag_error,
             },

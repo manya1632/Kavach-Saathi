@@ -302,7 +302,7 @@ function VishwasSamvadChat({ auth, onClose, initialMessage = "", initialProduct 
       {conversations.length > 1 && <label className="vishwas-conversation-picker">Recent conversations<select value={conversation?.id || ""} onChange={(event) => refreshConversation(conversations.find((item) => item.id === event.target.value))}>{conversations.map((item) => <option value={item.id} key={item.id}>{new Date(item.created_at).toLocaleString("en-IN")} · {item.status}</option>)}</select></label>}
       <div className="vishwas-samvad-messages-container" aria-live="polite">
         {!messages.length && <div className="vishwas-samvad-empty"><MessageCircle size={24} /><p>I answer only from evidence in your authorized page and records.</p></div>}
-        {messages.map((message) => { const answerAudio = message.sender === "assistant" ? message.metadata_json?.data?.audio_key : null; return <div className={`vishwas-message ${message.sender}`} key={message.id}><span>{message.content}</span>{answerAudio && <audio controls preload="none" src={audioUrl(answerAudio)}>Your browser does not support audio playback.</audio>}</div>; })}
+        {messages.map((message) => { const answerAudio = message.sender === "assistant" ? (message.metadata_json?.data?.audio_url || message.metadata_json?.data?.audio_key) : null; return <div className={`vishwas-message ${message.sender}`} key={message.id}><span>{message.content}</span>{answerAudio && <audio controls preload="metadata" src={audioUrl(answerAudio)}>Your browser does not support audio playback.</audio>}</div>; })}
         {busy && <div className="vishwas-message assistant"><LoaderCircle className="spin" size={16} /> Checking the evidence…</div>}
       </div>
       {!messages.length && !!initialPrompts.length && <div className="vishwas-prompts" aria-label="Suggested questions">{initialPrompts.map((prompt) => <button type="button" key={prompt} onClick={() => setText(prompt)}>{prompt}</button>)}</div>}
@@ -1929,7 +1929,7 @@ function AuthModal({ open, onClose, onAuthenticated }) {
     setVerifyError("");
     try {
       const channel = pendingSession.verification_channel || "email";
-      const user = await verifyContactOtp(channel, otp);
+      const user = await verifyContactOtp(channel, otp, pendingSession);
       onAuthenticated({ ...pendingSession, user });
     } catch (reason) {
       setVerifyError(reason.message || "Incorrect or expired code");
@@ -1943,7 +1943,7 @@ function AuthModal({ open, onClose, onAuthenticated }) {
     setResendNotice("");
     try {
       const channel = pendingSession.verification_channel || "email";
-      await resendContactOtp(channel);
+      await resendContactOtp(channel, pendingSession);
       setResendNotice(`A new code was sent via ${channel === "email" ? "email" : "WhatsApp"}.`);
     } catch (reason) {
       setVerifyError(reason.message || "Could not resend the code");
@@ -2094,6 +2094,7 @@ export default function Storefront({ initialProductId = null }) {
   const [visibleCount, setVisibleCount] = useState(50);
   const [selected, setSelected] = useState(null);
   const [drawer, setDrawer] = useState(null);
+  const [drawerReturnTo, setDrawerReturnTo] = useState(null);
   const [cart, setCart] = useState([]);
   const [cartBusy, setCartBusy] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -2110,6 +2111,7 @@ export default function Storefront({ initialProductId = null }) {
   const [pendingAfterAuth, setPendingAfterAuth] = useState(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef(null);
   const [wishlist, setWishlist] = useState([]);
   const [orders, setOrders] = useState([]);
   const [returns, setReturns] = useState([]);
@@ -2129,6 +2131,15 @@ export default function Storefront({ initialProductId = null }) {
     actionDialogConfig ||
     cardPaymentData
   );
+
+  useEffect(() => {
+    if (!accountMenuOpen) return undefined;
+    const closeOutside = (event) => {
+      if (!accountMenuRef.current?.contains(event.target)) setAccountMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    return () => document.removeEventListener("pointerdown", closeOutside);
+  }, [accountMenuOpen]);
 
   useEffect(() => {
     // Restoring the browser session is intentionally client-only; the server render
@@ -2532,7 +2543,7 @@ export default function Storefront({ initialProductId = null }) {
       const voiceResult = payload.results.voice_qa;
       const recommendation = sizeResult?.data?.recommended_size;
       const message = voiceResult?.user_message?.[language] || voiceResult?.summary || sizeResult?.user_message?.en || sizeResult?.summary || "";
-      setSizeSaathi({ size: recommendation || null, source: sizeResult?.data?.source, message, audioKey: voiceResult?.data?.audio_key || null });
+      setSizeSaathi({ size: recommendation || null, source: sizeResult?.data?.source, message, audioKey: voiceResult?.data?.audio_url || voiceResult?.data?.audio_key || null });
       if (recommendation) setToast(`Size Saathi recommends ${recommendation}`);
     });
   }
@@ -2556,7 +2567,7 @@ export default function Storefront({ initialProductId = null }) {
       const payload = await execute("Retrieving verified details...", () => post("/voice/query", { buyer_id: buyerId, product_id: selected.id, text: question, language, synthesize_audio: true }));
       const result = payload.results?.voice_qa;
       setAgentAnswer(result?.user_message?.[language] || result?.summary || "");
-      setVoiceAudioKey(result?.data?.audio_key || null);
+      setVoiceAudioKey(result?.data?.audio_url || result?.data?.audio_key || null);
     } catch { /* execute() already shows a toast on error */ }
   }
 
@@ -2575,7 +2586,7 @@ export default function Storefront({ initialProductId = null }) {
       const payload = await execute("Transcribing and processing your question...", () => post("/voice/query", { buyer_id: buyerId, product_id: selected.id, audio_key: presign.object_key, language, synthesize_audio: true }));
       const result = payload.results?.voice_qa;
       setAgentAnswer(result?.user_message?.[language] || result?.summary || "");
-      setVoiceAudioKey(result?.data?.audio_key || null);
+      setVoiceAudioKey(result?.data?.audio_url || result?.data?.audio_key || null);
     } catch (reason) {
       setToast(reason.message || "Could not process your voice question");
     }
@@ -2696,8 +2707,8 @@ export default function Storefront({ initialProductId = null }) {
         )}
         {vishwasOpen && <div className="vishwas-samvad-panel"><VishwasSamvadChat auth={auth} onClose={() => setVishwasOpen(false)} initialMessage={vishwasInitialMsg} initialProduct={vishwasInitialProduct} initialPrompts={vishwasInitialPrompts} /></div>}
         <CartDrawer items={cart} open={drawer === "cart"} busyItem={cartBusy} onClose={() => setDrawer(null)} onUpdate={updateCartQuantity} onRemove={removeFromCart} onCheckout={() => requireAuth(() => { setDrawer("checkout"); setCheckoutStep("address"); })} />
-        <CheckoutDrawer open={drawer === "checkout"} busy={busy} step={checkoutStep} orderId={lastOrderId} orderSummary={lastOrderSummary} onClose={() => setDrawer(null)} onGoOrders={() => setDrawer("orders")} onConfirm={confirmOrder} onConfirmPrepaid={confirmOrderPrepaid} addresses={addresses} onManageAddresses={() => setDrawer("addresses")} buyerName={auth?.user?.name} />
-        <AddressManagerDrawer open={drawer === "addresses"} onClose={() => { setDrawer(null); refreshAccountData(); }} buyerId={auth?.user?.id} />
+        <CheckoutDrawer open={drawer === "checkout"} busy={busy} step={checkoutStep} orderId={lastOrderId} orderSummary={lastOrderSummary} onClose={() => setDrawer(null)} onGoOrders={() => setDrawer("orders")} onConfirm={confirmOrder} onConfirmPrepaid={confirmOrderPrepaid} addresses={addresses} onManageAddresses={() => { setDrawerReturnTo("checkout"); setDrawer("addresses"); }} buyerName={auth?.user?.name} />
+        <AddressManagerDrawer open={drawer === "addresses"} onClose={() => { setDrawer(drawerReturnTo); setDrawerReturnTo(null); refreshAccountData(); }} buyerId={auth?.user?.id} />
         <AccountDataDrawer type={drawer} open={["orders", "wishlist", "returns"].includes(drawer)} orders={orders} wishlist={wishlist} returns={returns} onClose={() => setDrawer(null)} onOpenProduct={(productId) => router.push(`/products/${productId}`)} onRemoveWishlist={(productId) => toggleWishlist({ id: productId })} onStartReturn={startReturn} onStartReview={startReview} onViewReturn={handleViewReturn} onSubmitFitFeedback={submitFitFeedback} onSendOrderEmailOtp={sendOrderEmailOtp} onVerifyOrderEmailOtp={verifyOrderEmailOtp} />
         <ReturnVerificationDrawer open={drawer === "return-verify"} returnId={selectedReturnId} returns={returns} orders={orders} onClose={() => { setDrawer(null); refreshAccountData(); }} onRefreshData={refreshAccountData} />
         <AuthModal open={authModalOpen} onClose={() => { setAuthModalOpen(false); setPendingAfterAuth(null); }} onAuthenticated={handleAuthenticated} />
@@ -2732,7 +2743,7 @@ export default function Storefront({ initialProductId = null }) {
             <button type="button" onClick={() => router.push("/support")}><Headphones size={19} /><span>Support</span></button>
             {auth?.user ? (
               <>
-                <div className="account-menu"><button type="button" onClick={() => setAccountMenuOpen((open) => !open)} aria-expanded={accountMenuOpen} title={auth.user.email || auth.user.phone}><CircleUserRound size={19} /><span>{auth.user.name}</span><ChevronDown size={14} /></button>{accountMenuOpen && <div className="account-dropdown">
+                <div className="account-menu" ref={accountMenuRef}><button type="button" onClick={() => setAccountMenuOpen((open) => !open)} aria-expanded={accountMenuOpen} title={auth.user.email || auth.user.phone}><CircleUserRound size={19} /><span>{auth.user.name}</span><ChevronDown size={14} /></button>{accountMenuOpen && <div className="account-dropdown">
                   <button type="button" onClick={() => { setDrawer("orders"); setAccountMenuOpen(false); }}><Package size={14} /> My Orders <small>{orders.length}</small></button>
                   <button type="button" onClick={() => { setDrawer("cart"); setAccountMenuOpen(false); }}><ShoppingCart size={14} /> My Cart <small>{cart.reduce((sum, item) => sum + item.qty, 0)}</small></button>
                   <button type="button" onClick={() => { setDrawer("wishlist"); setAccountMenuOpen(false); }}><Heart size={14} /> My Wishlist <small>{wishlist.length}</small></button>
@@ -2801,8 +2812,8 @@ export default function Storefront({ initialProductId = null }) {
       <footer className="site-footer"><a className="logo inverse" href="#top"><span>K</span><div><strong>Kavach</strong><small>SAATHI SHOP</small></div></a><p>Agent-protected commerce with persistent evidence and auditable decisions.</p><div><a href="http://localhost:8000/docs" target="_blank" rel="noreferrer">API docs</a></div></footer>
 
       {!isAccountPage && <CartDrawer items={cart} open={drawer === "cart"} busyItem={cartBusy} onClose={() => setDrawer(null)} onUpdate={updateCartQuantity} onRemove={removeFromCart} onCheckout={() => requireAuth(() => { setDrawer("checkout"); setCheckoutStep("address"); })} />}
-      <CheckoutDrawer open={drawer === "checkout"} busy={busy} step={checkoutStep} orderId={lastOrderId} orderSummary={lastOrderSummary} onClose={() => setDrawer(null)} onGoOrders={() => router.push("/account/orders")} onConfirm={confirmOrder} onConfirmPrepaid={confirmOrderPrepaid} addresses={addresses} onManageAddresses={() => router.push("/account/addresses")} buyerName={auth?.user?.name} />
-      {!isAccountPage && <AddressManagerDrawer open={drawer === "addresses"} onClose={() => { setDrawer(null); refreshAccountData(); }} buyerId={auth?.user?.id} />}
+      <CheckoutDrawer open={drawer === "checkout"} busy={busy} step={checkoutStep} orderId={lastOrderId} orderSummary={lastOrderSummary} onClose={() => setDrawer(null)} onGoOrders={() => router.push("/account/orders")} onConfirm={confirmOrder} onConfirmPrepaid={confirmOrderPrepaid} addresses={addresses} onManageAddresses={() => { setDrawerReturnTo("checkout"); setDrawer("addresses"); }} buyerName={auth?.user?.name} />
+      {!isAccountPage && <AddressManagerDrawer open={drawer === "addresses"} onClose={() => { setDrawer(drawerReturnTo); setDrawerReturnTo(null); refreshAccountData(); }} buyerId={auth?.user?.id} />}
       {!isAccountPage && <AccountDataDrawer type={drawer} open={["orders", "wishlist", "returns"].includes(drawer)} orders={orders} wishlist={wishlist} returns={returns} onClose={() => setDrawer(null)} onOpenProduct={(productId) => router.push(`/products/${productId}`)} onRemoveWishlist={(productId) => toggleWishlist({ id: productId })} onStartReturn={startReturn} onStartReview={startReview} onViewReturn={handleViewReturn} onSubmitFitFeedback={submitFitFeedback} onSendOrderEmailOtp={sendOrderEmailOtp} onVerifyOrderEmailOtp={verifyOrderEmailOtp} />}
       <ReturnVerificationDrawer open={drawer === "return-verify"} returnId={selectedReturnId} returns={returns} orders={orders} onClose={() => { setDrawer(null); refreshAccountData(); }} onRefreshData={refreshAccountData} />
       <AuthModal open={authModalOpen} onClose={() => { setAuthModalOpen(false); setPendingAfterAuth(null); }} onAuthenticated={handleAuthenticated} />

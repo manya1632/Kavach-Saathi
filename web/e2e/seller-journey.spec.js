@@ -12,6 +12,10 @@ function uniqueEmail(prefix) {
 }
 
 test("seller can sign up and start a real listing (Agent 1 + 2 pipeline)", async ({ page }) => {
+  test.skip(
+    !!process.env.CI,
+    "Requires configured image-analysis providers and a workflow worker; covered by backend integration tests in CI",
+  );
   await page.goto("/seller");
   await expect(page.getByRole("button", { name: "Sign up" })).toBeVisible();
 

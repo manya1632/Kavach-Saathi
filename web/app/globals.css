@@ -56,7 +56,7 @@ img { max-width: 100%; }
 .logo > span { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 13px 13px 13px 4px; color: white; background: linear-gradient(145deg, var(--plum), #b63471); font-family: Georgia, serif; font-size: 23px; font-weight: 900; }
 .logo strong, .logo small { display: block; line-height: 1; }
 .logo strong { font-family: Georgia, serif; font-size: 23px; letter-spacing: -.04em; }
-.logo small { margin-top: 4px; font-size: 7px; font-weight: 900; letter-spacing: .16em; }
+.logo small { margin-top: 4px; font-size: 8px; font-weight: 900; letter-spacing: .16em; }
 
 .mobile-menu { display: none; border: 0; background: transparent; }
 .search-box { width: 100%; height: 46px; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 0 15px; border: 1px solid #cdc4c8; border-radius: 11px; color: #91868c; background: white; }
@@ -65,7 +65,7 @@ img { max-width: 100%; }
 .search-box kbd { padding: 3px 6px; border: 1px solid var(--line); border-radius: 5px; color: #9b9296; background: var(--soft); font-size: 9px; }
 
 .utility-nav { min-width: max-content; display: flex; align-items: center; gap: 5px; }
-.utility-nav button { position: relative; min-width: 62px; min-height: 48px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 3px; padding: 6px 10px; border: 1px solid transparent; border-radius: 10px; background: transparent; font-size: 10px; cursor: pointer; }
+.utility-nav button { position: relative; min-width: 62px; min-height: 48px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 3px; padding: 6px 10px; border: 1px solid transparent; border-radius: 10px; background: transparent; font-size: 11px; cursor: pointer; }
 .utility-nav button:hover { color: var(--plum); border-color: var(--line); background: var(--pink); }
 .utility-nav b, .product-page-header-actions b { position: absolute; top: 3px; right: 5px; min-width: 18px; height: 18px; display: grid; place-items: center; padding: 0 4px; border: 2px solid white; border-radius: 99px; color: white; background: var(--plum); font-size: 8px; }
 .category-nav { max-width: 1380px; display: flex; gap: 6px; margin: 0 auto; padding: 0 30px; overflow-x: auto; scrollbar-width: none; }
@@ -208,7 +208,9 @@ img { max-width: 100%; }
 .drawer-price span { color: var(--green); font-size: 10px; font-weight: 900; }
 .trust-banner { display: flex; gap: 10px; margin: 20px 0; padding: 12px; border: 1px solid #bfe2ce; border-radius: 10px; color: var(--green); background: var(--green-soft); }
 .trust-banner strong { display: block; font-size: 10px; }
-.trust-banner p { margin: 4px 0 0; color: #416c57; font-size: 8px; line-height: 1.4; }
+.trust-banner p { margin: 4px 0 0; color: #416c57; font-size: 9px; line-height: 1.4; }
+.trust-banner[aria-label="Vishwas Saathi"] { border-color: #e7bfd3; color: var(--plum); background: var(--pink); }
+.trust-banner[aria-label="Vishwas Saathi"] p { color: #7b4761; }
 .section-label { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .section-label strong { font-size: 11px; }
 .section-label button { display: flex; align-items: center; gap: 5px; padding: 6px 8px; border: 0; border-radius: 7px; color: var(--plum); background: var(--pink); font-size: 8px; font-weight: 900; cursor: pointer; }

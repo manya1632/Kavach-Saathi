@@ -28,7 +28,7 @@ button:not(:disabled):active { transform: translateY(1px) scale(.98); }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid rgb(123 23 72 / 22%); outline-offset: 2px; }
 button:disabled { opacity: .56; cursor: not-allowed !important; }
 img { max-width: 100%; }
-.storefront { min-height: 100vh; overflow-x: hidden; }
+.storefront { min-height: 100vh; overflow-x: clip; }
 .spin { animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -424,6 +424,7 @@ img { max-width: 100%; }
   .utility-nav.open { position: absolute; z-index: 70; top: 64px; left: 12px; right: 12px; display: flex; justify-content: center; flex-wrap: wrap; padding: 10px; border: 1px solid var(--line); border-radius: 14px; background: white; box-shadow: var(--shadow); }
   .utility-nav.open > button { display: flex; }
   .utility-nav.open button span { display: block; }
+  .account-dropdown { position: fixed; z-index: 100; top: 72px; right: 12px; left: 12px; width: auto; max-height: calc(100dvh - 84px); overflow-y: auto; }
   .product-page-header { grid-template-columns: auto 1fr auto; padding-inline: 12px; }
   .product-page-header .logo { justify-self: center; }
   .product-page-header .logo div { display: none; }

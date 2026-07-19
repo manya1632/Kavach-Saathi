@@ -123,13 +123,11 @@ class GroqReasoningProvider(ReasoningProvider):
         json_schema = _strict_schema(schema.model_json_schema())
 
         # Agents 2/8's OCR calls need a vision-capable model; the text-only default
-        # (openai/gpt-oss-120b) can't read images at all. meta-llama/llama-4-scout is
-        # the multimodal model Groq actually serves under this API key (verified live
-        # -- meta-llama/llama-4-maverick-17b-128e-instruct 404s on this account), so
+        # (openai/gpt-oss-120b) can't read images at all. Qwen 3.6 27B is the
+        # currently supported multimodal Groq model, so
         # image-bearing calls route there instead of failing outright when this is the
         # only reachable provider (e.g. Gemini's shared-capacity 503s).
-        # meta-llama/llama-4-scout (the vision model) 400s on `reasoning_effort` -- that
-        # parameter is only accepted by the text-only openai/gpt-oss-120b model.
+        # image-bearing calls omit `reasoning_effort`; text-only GPT-OSS accepts it.
         extra_params: dict[str, Any] = {}
         if images:
             content: Any = [{"type": "text", "text": prompt}]

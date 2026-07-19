@@ -35,12 +35,14 @@ from kavach_saathi.db.base import get_engine, get_read_engine, get_session
 from kavach_saathi.db.models import Order, OrderItem, OrderStatusHistory, Payment, ProductVariant, User
 from kavach_saathi.delivery_api import router as delivery_router
 from kavach_saathi.events import enqueue_workflow, start_order_consumer, start_review_consumer
-from kavach_saathi.media_storage import create_presigned_upload, media_url
+from kavach_saathi.media_storage import media_url, write_generated_image
 from kavach_saathi.models import (
     AddressVerifyRequest,
     AuthUser,
     ChatConversationCreate,
     ChatMessageSend,
+    ContactOtpResendRequest,
+    ContactOtpVerifyRequest,
     EmailOtpVerifyRequest,
     HealthResponse,
     ListingAnalyzeRequest,
@@ -242,6 +244,7 @@ def create_app() -> FastAPI:
             phone=user.phone,
             preferred_language=user.preferred_language,
             email_verified=user.email_verified,
+            phone_verified=user.phone_verified,
         )
 
     @app.post(f"{prefix}/auth/signup", response_model=TokenResponse, status_code=201)
@@ -263,22 +266,58 @@ def create_app() -> FastAPI:
         access = create_access_token(user, cfg)
         refresh = create_refresh_token(user, session, cfg)
 
-        email_verification_sent = False
-        if user.email:
-            try:
+        selected_channel = payload.verification_channel or ("email" if user.email else "whatsapp")
+        verification_sent = False
+        try:
+            if selected_channel == "email" and user.email:
                 EmailIntegrationClient(cfg).send_otp_email(user.email, purpose="signup", reference_id=user.id)
-                email_verification_sent = True
-            except RuntimeError:
-                # Honest degrade: SMTP not configured or delivery failed --
-                # don't block account creation on an optional email feature.
-                logger.warning("Could not send signup verification email for user %s", user.id, exc_info=True)
+                verification_sent = True
+            elif selected_channel == "whatsapp" and user.phone:
+                TwilioIntegrationClient(cfg).send_programmable_whatsapp_otp(
+                    user.phone, purpose="signup", reference_id=user.id
+                )
+                verification_sent = True
+        except Exception as exc:
+            # Explicit channel selection is authoritative: never silently send on
+            # the other channel or pretend that the chosen message was delivered.
+            if "verification_channel" in payload.model_fields_set:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"{selected_channel.title()} verification is temporarily unavailable",
+                ) from exc
+            logger.warning("Could not send signup verification for user %s", user.id, exc_info=True)
 
         return TokenResponse(
             access_token=access,
             refresh_token=refresh,
             user=_auth_user(user),
-            email_verification_sent=email_verification_sent,
+            email_verification_sent=verification_sent and selected_channel == "email",
+            verification_sent=verification_sent,
+            verification_channel=selected_channel if verification_sent else None,
         )
+
+    def _verify_signup_contact(user: User, channel: str, otp: str, cfg: Settings, session: Session) -> AuthUser:
+        contact = user.email if channel == "email" else user.phone
+        if not contact:
+            raise HTTPException(status_code=400, detail=f"This account has no {channel} contact on file")
+        if not otp_core.verify_otp(get_redis(), cfg, purpose="signup", reference_id=user.id, code=otp):
+            raise HTTPException(status_code=400, detail="Incorrect or expired verification code")
+        db_user = session.get(User, user.id)
+        if channel == "email":
+            db_user.email_verified = True
+        else:
+            db_user.phone_verified = True
+        session.flush()
+        return _auth_user(db_user)
+
+    @app.post(f"{prefix}/auth/verify-contact")
+    async def auth_verify_contact(
+        payload: ContactOtpVerifyRequest,
+        user: Annotated[User, Depends(get_current_user)],
+        cfg: Settings = Depends(get_settings),
+        session: Session = Depends(get_session),
+    ) -> AuthUser:
+        return _verify_signup_contact(user, payload.channel, payload.otp, cfg, session)
 
     @app.post(f"{prefix}/auth/verify-email")
     async def auth_verify_email(
@@ -287,20 +326,12 @@ def create_app() -> FastAPI:
         cfg: Settings = Depends(get_settings),
         session: Session = Depends(get_session),
     ) -> AuthUser:
-        if not otp_core.verify_otp(get_redis(), cfg, purpose="signup", reference_id=user.id, code=payload.otp):
-            raise HTTPException(status_code=400, detail="Incorrect or expired verification code")
-        db_user = session.get(User, user.id)
-        db_user.email_verified = True
-        session.flush()
-        return _auth_user(db_user)
+        return _verify_signup_contact(user, "email", payload.otp, cfg, session)
 
-    @app.post(f"{prefix}/auth/verify-email/resend")
-    async def auth_verify_email_resend(
-        user: Annotated[User, Depends(get_current_user)],
-        cfg: Settings = Depends(get_settings),
-    ) -> dict:
-        if not user.email:
-            raise HTTPException(status_code=400, detail="This account has no email on file")
+    def _resend_signup_contact(user: User, channel: str, cfg: Settings) -> dict:
+        contact = user.email if channel == "email" else user.phone
+        if not contact:
+            raise HTTPException(status_code=400, detail=f"This account has no {channel} contact on file")
         redis = get_redis()
         existing_ttl = redis.ttl(otp_core.otp_key("signup", user.id))
         cooldown = cfg.otp_resend_cooldown_seconds
@@ -309,13 +340,37 @@ def create_app() -> FastAPI:
             if time_since_last_send < cooldown:
                 wait_sec = cooldown - time_since_last_send
                 raise HTTPException(
-                    status_code=429, detail=f"Please wait {wait_sec} seconds before requesting a new OTP"
+                    status_code=429,
+                    detail=f"Please wait {wait_sec} seconds before requesting a new OTP",
                 )
         try:
-            EmailIntegrationClient(cfg).send_otp_email(user.email, purpose="signup", reference_id=user.id)
-        except RuntimeError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        return {"message": "Verification code resent"}
+            if channel == "email":
+                EmailIntegrationClient(cfg).send_otp_email(contact, purpose="signup", reference_id=user.id)
+            else:
+                TwilioIntegrationClient(cfg).send_programmable_whatsapp_otp(
+                    contact, purpose="signup", reference_id=user.id
+                )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"{channel.title()} verification is temporarily unavailable",
+            ) from exc
+        return {"message": f"Verification code resent via {channel}"}
+
+    @app.post(f"{prefix}/auth/verify-contact/resend")
+    async def auth_verify_contact_resend(
+        payload: ContactOtpResendRequest,
+        user: Annotated[User, Depends(get_current_user)],
+        cfg: Settings = Depends(get_settings),
+    ) -> dict:
+        return _resend_signup_contact(user, payload.channel, cfg)
+
+    @app.post(f"{prefix}/auth/verify-email/resend")
+    async def auth_verify_email_resend(
+        user: Annotated[User, Depends(get_current_user)],
+        cfg: Settings = Depends(get_settings),
+    ) -> dict:
+        return _resend_signup_contact(user, "email", cfg)
 
     @app.post(f"{prefix}/auth/login", response_model=TokenResponse)
     async def auth_login(
@@ -977,19 +1032,18 @@ def create_app() -> FastAPI:
     ) -> PresignResponse:
         suffix = Path(payload.filename).suffix.lower()
         key = f"uploads/{payload.kind}/{uuid4()}{suffix}"
-        if cfg.uses_object_storage:
-            url = create_presigned_upload(key, payload.content_type, cfg)
-        else:
-            # A relative path through the Next.js rewrite (see web/next.config.mjs's
-            # `/agent-api/:path*` rule) keeps this same-origin from the browser's point
-            # of view no matter what host/port the page itself was loaded from -- no
-            # CORS, no guessing whether localhost:8000 or a tunnel hostname is what the
-            # browser can actually reach. PUBLIC_BASE_URL is for the Twilio webhook
-            # callback (a server-to-server URL Twilio's servers must reach) and must
-            # not be reused here: it previously pointed browser uploads at that ngrok
-            # tunnel, which fails with "Failed to fetch" whenever the tunnel isn't the
-            # thing serving the page (e.g. testing directly against localhost).
-            url = f"/agent-api{prefix}/mock-uploads/{key}"
+        # Browser uploads always stay same-origin and are relayed to the configured
+        # media backend. This removes S3 CORS from the critical delivery/review/voice
+        # path while preserving private object storage and opaque object keys.
+        try:
+            get_redis().setex(
+                f"media-upload-slot:{key}",
+                cfg.media_presign_expiry_seconds,
+                payload.content_type,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Media upload service is temporarily unavailable") from exc
+        url = f"/agent-api{prefix}/mock-uploads/{key}"
         return PresignResponse(object_key=key, upload_url=url, expires_in=cfg.media_presign_expiry_seconds)
 
     @app.post(f"{prefix}/twilio/voice/{{order_id}}")
@@ -1190,14 +1244,26 @@ def create_app() -> FastAPI:
         request: Request,
         cfg: Settings = Depends(get_settings),
     ):
-        if cfg.uses_object_storage:
-            raise HTTPException(status_code=404)
-        destination = (cfg.asset_dir / object_key).resolve()
-        root = cfg.asset_dir.resolve()
-        if root not in destination.parents:
+        if not object_key.startswith("uploads/") or ".." in Path(object_key).parts:
             raise HTTPException(status_code=400, detail="Invalid object key")
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(await request.body())
+        redis = get_redis()
+        slot_key = f"media-upload-slot:{object_key}"
+        expected_content_type = redis.get(slot_key)
+        if not expected_content_type:
+            raise HTTPException(status_code=403, detail="Upload slot is invalid or expired")
+        if isinstance(expected_content_type, bytes):
+            expected_content_type = expected_content_type.decode()
+        content_type = request.headers.get("content-type", "application/octet-stream").split(";", 1)[0]
+        if content_type != expected_content_type:
+            raise HTTPException(status_code=400, detail="Upload content type does not match the reserved slot")
+        content = await request.body()
+        if not content or len(content) > 25 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Upload must contain between 1 byte and 25 MB")
+        try:
+            write_generated_image(object_key, content, cfg, content_type=content_type)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Media storage is temporarily unavailable") from exc
+        redis.delete(slot_key)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     return app

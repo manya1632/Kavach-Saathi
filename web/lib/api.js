@@ -162,6 +162,7 @@ export const createReview = (payload) => post("/reviews", payload);
 
 export function assetUrl(path) {
   if (!path) return "";
+  if (/^(https?:|data:|blob:)/i.test(path)) return path;
   if (path.startsWith("/mock-assets")) return path;
   if (path.startsWith("assets/mock/")) return `/mock-assets/${path.slice("assets/mock/".length)}`;
   return `/mock-assets/${path}`;
@@ -193,5 +194,12 @@ export async function verifyEmailOtp(otp) {
 }
 
 export const resendEmailOtp = () => post("/auth/verify-email/resend", {});
+export async function verifyContactOtp(channel, otp) {
+  const user = await post("/auth/verify-contact", { channel, otp });
+  const session = loadAuthSession();
+  if (session) saveAuthSession({ ...session, user });
+  return user;
+}
+export const resendContactOtp = (channel) => post("/auth/verify-contact/resend", { channel });
 export const confirmOrderEmailSend = (orderId) => post(`/orders/${orderId}/confirm/email/send`, {});
 export const confirmOrderEmailVerify = (orderId, otp) => post(`/orders/${orderId}/confirm/email/verify`, { otp });

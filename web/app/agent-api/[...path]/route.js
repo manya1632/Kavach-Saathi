@@ -1,8 +1,7 @@
-const agentOrigin = process.env.AGENT_API_ORIGIN || "http://127.0.0.1:8000";
-
 export const dynamic = "force-dynamic";
 
 async function proxy(request, context) {
+  const agentOrigin = process.env.AGENT_API_ORIGIN || "http://127.0.0.1:8000";
   const { path } = await context.params;
   const incomingUrl = new URL(request.url);
   const targetUrl = new URL(path.join("/"), `${agentOrigin}/`);

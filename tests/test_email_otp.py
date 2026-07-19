@@ -169,6 +169,54 @@ def test_signup_without_email_does_not_attempt_verification(client) -> None:
     assert response.json()["email_verification_sent"] is False
 
 
+def test_signup_whatsapp_selection_sends_only_whatsapp_and_verifies_phone(client) -> None:
+    phone = f"+9198{uuid.uuid4().int % 10**8:08d}"
+
+    def fake_whatsapp_otp(contact: str, *, purpose: str, reference_id: str) -> str:
+        assert contact == phone
+        assert purpose == "signup"
+        with patch("kavach_saathi.providers.otp_core.secrets.randbelow", return_value=23456):
+            otp_core.store_otp(
+                get_redis(), get_settings(), purpose=purpose, reference_id=reference_id, contact=contact
+            )
+        return "SM-SIGNUP-TEST"
+
+    with (
+        patch(
+            "kavach_saathi.app.TwilioIntegrationClient.send_programmable_whatsapp_otp",
+            side_effect=fake_whatsapp_otp,
+        ) as whatsapp_send,
+        patch("kavach_saathi.app.EmailIntegrationClient.send_otp_email") as email_send,
+    ):
+        response = client.post(
+            "/v1/auth/signup",
+            json={
+                "role": "buyer",
+                "name": "WhatsApp OTP Buyer",
+                "password": "correct-horse-1",
+                "phone": phone,
+                "verification_channel": "whatsapp",
+            },
+        )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["verification_sent"] is True
+    assert body["verification_channel"] == "whatsapp"
+    assert body["email_verification_sent"] is False
+    whatsapp_send.assert_called_once()
+    email_send.assert_not_called()
+
+    headers = {"Authorization": f"Bearer {body['access_token']}"}
+    verified = client.post(
+        "/v1/auth/verify-contact",
+        headers=headers,
+        json={"channel": "whatsapp", "otp": "123456"},
+    )
+    assert verified.status_code == 200, verified.text
+    assert verified.json()["phone_verified"] is True
+
+
 # --- Order confirmation via email (end to end) -------------------------------
 
 

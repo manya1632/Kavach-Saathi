@@ -45,6 +45,7 @@ flows remain connected to the same authoritative database and evidence model.
 ### End-to-end website journey
 
 ```mermaid
+%%{init: {"themeVariables": {"background": "#ffffff", "clusterBkg": "#ffffff"}}}%%
 flowchart LR
     Visitor([Visitor]) --> Auth{Authentication}
     Auth -->|Buyer| BuyerHome[Buyer storefront /]
@@ -64,7 +65,7 @@ flowchart LR
         Checkout -->|Prepaid| Razorpay[Razorpay sandbox]
         Checkout -->|Cash on delivery| Order[Order created]
         Razorpay --> Order
-        Order --> WhatsApp[WhatsApp ownership and delivery-date confirmation]
+        Order --> WhatsApp[WhatsApp or email ownership and delivery-date confirmation]
         WhatsApp --> Scheduled[Delivery scheduled]
         Scheduled --> Delivered[OTP-confirmed delivery]
         Delivered --> Review[Verified review submission]
@@ -87,12 +88,12 @@ flowchart LR
         direction TB
         DeliveryHome --> DeliveryQueue[Pending delivery queue]
         DeliveryQueue --> DeliveryEvidence[Front and back delivery evidence]
-        DeliveryEvidence --> DeliveryOtp[Buyer WhatsApp OTP]
+        DeliveryEvidence --> DeliveryOtp[Buyer WhatsApp or email OTP]
         DeliveryOtp --> Delivered
         DeliveryHome --> ReturnQueue[Pending return queue]
         Return --> ReturnQueue
         ReturnQueue --> ManualChecks[Manual condition checks]
-        ManualChecks --> ReturnOtp[Buyer WhatsApp OTP]
+        ManualChecks --> ReturnOtp[Buyer WhatsApp or email OTP]
         ReturnOtp --> ReturnComplete[Completed return]
     end
 

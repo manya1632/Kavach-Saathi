@@ -1943,7 +1943,7 @@ function AuthModal({ open, onClose, onAuthenticated }) {
     setResendNotice("");
     try {
       const channel = pendingSession.verification_channel || "email";
-      await resendContactOtp(channel);
+      await resendContactOtp(channel, pendingSession);
       setResendNotice(`A new code was sent via ${channel === "email" ? "email" : "WhatsApp"}.`);
     } catch (reason) {
       setVerifyError(reason.message || "Could not resend the code");

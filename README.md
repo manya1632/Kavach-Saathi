@@ -226,8 +226,6 @@ uv run pytest
 uv run ruff check .
 npm --prefix web run lint
 npm --prefix web run build
-npx --prefix web playwright install chromium   # first browser-test run only
-npm --prefix web run e2e
 ```
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for production configuration and deployment details.

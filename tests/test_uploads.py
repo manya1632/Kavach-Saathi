@@ -65,6 +65,25 @@ def test_same_origin_upload_relay_writes_reserved_object(client) -> None:
         written.unlink(missing_ok=True)
 
 
+def test_voice_upload_accepts_browser_codec_parameter(client) -> None:
+    response = client.post(
+        "/v1/uploads/presign",
+        json={"kind": "voice", "filename": "question.webm", "content_type": "audio/webm;codecs=opus"},
+    )
+    body = response.json()
+    written = get_settings().asset_dir / body["object_key"]
+    try:
+        upload = client.put(
+            body["upload_url"].removeprefix("/agent-api"),
+            content=b"browser-webm-audio",
+            headers={"Content-Type": "audio/webm;codecs=opus"},
+        )
+        assert upload.status_code == 204, upload.text
+        assert written.read_bytes() == b"browser-webm-audio"
+    finally:
+        written.unlink(missing_ok=True)
+
+
 def test_object_storage_upload_uses_same_origin_relay(client) -> None:
     settings = get_settings()
     with (

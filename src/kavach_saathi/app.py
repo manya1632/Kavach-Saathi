@@ -906,7 +906,12 @@ def create_app() -> FastAPI:
         conversations = container.repository.list_active_chats_for_user(user.id)
         if not any(c["id"] == conversation_id for c in conversations):
             raise HTTPException(status_code=403, detail="Access denied to this conversation")
-        return container.repository.list_chat_messages(conversation_id)
+        messages = container.repository.list_chat_messages(conversation_id)
+        for message in messages:
+            data = (message.get("metadata_json") or {}).get("data") or {}
+            if data.get("audio_key"):
+                data["audio_url"] = media_url(data["audio_key"], container.settings)
+        return messages
 
     @app.post(f"{prefix}/chat/conversations/{{conversation_id}}/archive")
     async def archive_chat_conversation(
@@ -994,6 +999,10 @@ def create_app() -> FastAPI:
             payload.conversation_id, sender="assistant", content=answer_text, metadata_json=res.model_dump(mode="json")
         )
 
+        assistant_data = (assistant_msg.get("metadata_json") or {}).get("data") or {}
+        if assistant_data.get("audio_key"):
+            assistant_data["audio_url"] = media_url(assistant_data["audio_key"], container.settings)
+
         return {"user_message": user_msg, "assistant_message": assistant_msg}
 
     @app.post(f"{prefix}/address/verify", response_model=RunEnvelope)
@@ -1039,7 +1048,7 @@ def create_app() -> FastAPI:
             get_redis().setex(
                 f"media-upload-slot:{key}",
                 cfg.media_presign_expiry_seconds,
-                payload.content_type,
+                payload.content_type.split(";", 1)[0].strip().lower(),
             )
         except Exception as exc:
             raise HTTPException(status_code=503, detail="Media upload service is temporarily unavailable") from exc
@@ -1253,7 +1262,8 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=403, detail="Upload slot is invalid or expired")
         if isinstance(expected_content_type, bytes):
             expected_content_type = expected_content_type.decode()
-        content_type = request.headers.get("content-type", "application/octet-stream").split(";", 1)[0]
+        expected_content_type = expected_content_type.split(";", 1)[0].strip().lower()
+        content_type = request.headers.get("content-type", "application/octet-stream").split(";", 1)[0].strip().lower()
         if content_type != expected_content_type:
             raise HTTPException(status_code=400, detail="Upload content type does not match the reserved slot")
         content = await request.body()

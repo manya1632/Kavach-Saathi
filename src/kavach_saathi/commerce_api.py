@@ -850,6 +850,26 @@ async def list_my_returns(
     limit: Annotated[int | None, Query(ge=1, le=500)] = None,
     offset: Annotated[int, Query(ge=0)] = 0,
 ):
+    # Demo refund settlement is deterministic: one hour after an inspected return
+    # completes, persist the refund as completed before returning buyer state.
+    cutoff = datetime.now(UTC) - timedelta(hours=1)
+    pending_refunds = session.execute(
+        select(ReturnRecord).where(
+            ReturnRecord.buyer_id == user.id,
+            ReturnRecord.status == "return_completed",
+            ReturnRecord.refund_status == "refund_pending",
+            ReturnRecord.decided_at.is_not(None),
+            ReturnRecord.decided_at <= cutoff,
+        )
+    ).scalars().all()
+    for record in pending_refunds:
+        record.refund_status = "completed"
+        payment = session.execute(select(Payment).where(Payment.order_id == record.order_id)).scalars().first()
+        if payment:
+            payment.status = "refunded"
+    if pending_refunds:
+        session.commit()
+
     statement = (
         select(ReturnRecord)
         .where(ReturnRecord.buyer_id == user.id)

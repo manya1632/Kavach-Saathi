@@ -137,6 +137,7 @@ async def list_assigned_deliveries(
         .outerjoin(Address, Order.address_id == Address.id)
         .join(User, Order.buyer_id == User.id)
         .where(
+            ~Order.id.like("O-RV-%"),
             Order.status.in_(
                 [
                     OrderStatus.DELIVERY_SCHEDULED,
@@ -381,6 +382,7 @@ async def list_assigned_returns(
         .outerjoin(Address, Order.address_id == Address.id)
         .join(User, ReturnRecord.buyer_id == User.id)
         .where(
+            ~Order.id.like("O-RV-%"),
             ReturnRecord.status.in_(
                 [
                     "pickup_assigned",

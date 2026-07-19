@@ -263,7 +263,7 @@ def _reviewer_display_name(review_id: str) -> str:
     return f"{first} {last}."
 
 
-def _review_dict(review: Review) -> dict[str, Any]:
+def _review_dict(review: Review, reviewer_name: str | None = None) -> dict[str, Any]:
     return {
         "id": review.id,
         "buyer_id": review.buyer_id,
@@ -274,7 +274,7 @@ def _review_dict(review: Review) -> dict[str, Any]:
         "is_hidden_by_agent": review.is_hidden_by_agent,
         "hide_reason": review.hide_reason,
         "created_at": review.created_at.isoformat() if review.created_at else None,
-        "reviewer_name": _reviewer_display_name(review.id),
+        "reviewer_name": reviewer_name or _reviewer_display_name(review.id),
     }
 
 
@@ -567,10 +567,13 @@ class CommerceRepository:
 
     def product_reviews(self, product_id: str) -> list[dict[str, Any]]:
         with self._session() as session:
-            reviews = session.execute(
-                select(Review).where(Review.product_id == product_id).order_by(Review.created_at.desc())
-            ).scalars()
-            return [_review_dict(r) for r in reviews]
+            rows = session.execute(
+                select(Review, User.name)
+                .outerjoin(User, User.id == Review.buyer_id)
+                .where(Review.product_id == product_id)
+                .order_by(Review.created_at.desc())
+            ).all()
+            return [_review_dict(review, buyer_name) for review, buyer_name in rows]
 
     def review_report(self, product_id: str) -> dict[str, Any]:
         """Aggregate counts backing the storefront's review-truth report -- computed

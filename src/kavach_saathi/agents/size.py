@@ -168,6 +168,47 @@ class SizeTranslatorAgent(Agent):
         history = self.context.repository.buyer_orders(request.buyer_id)
         good_history = [order for order in history if order.get("fit_feedback") == "good"]
 
+        # A successful fit for this exact product is stronger and fresher evidence
+        # than catalogue popularity or a model inference. Reuse it immediately.
+        exact_good_fit = next(
+            (
+                order
+                for order in reversed(good_history)
+                if order.get("product_id") == request.product_id
+                and order.get("size") in chart
+                and order.get("id") != "O-GOLDEN"
+                and not (str(order.get("id", "")).startswith("O-") and str(order.get("id", ""))[2:].isdigit())
+            ),
+            None,
+        )
+        if exact_good_fit:
+            recommended = exact_good_fit["size"]
+            return AgentResult(
+                agent=AgentName.SIZE_TRANSLATOR,
+                status=RunStatus.COMPLETED,
+                confidence=98,
+                summary=f"Your delivered {recommended} size fit well for this product.",
+                evidence=[
+                    Evidence(key="successful_history", value=[exact_good_fit], source="order_history"),
+                    Evidence(key="seller_size_chart", value=chart, source="verified_listing"),
+                ],
+                actions=[AgentAction(type="select_size", label=f"Select {recommended}", payload={"size": recommended})],
+                data={"recommended_size": recommended, "history": [exact_good_fit], "source": "exact_good_fit"},
+                user_message={
+                    "en": (
+                        f"Aapne isi product ka {recommended} size pehle good fit bataya tha, "
+                        f"isliye {recommended} size recommend kiya gaya hai."
+                    ),
+                    "hi": (
+                        f"Aapne isi product ka {recommended} size pehle good fit bataya tha, "
+                        f"isliye {recommended} size recommend kiya gaya hai."
+                    ),
+                    "bn": f"Your earlier {recommended} size for this product was marked as a good fit.",
+                    "mr": f"Your earlier {recommended} size for this product was marked as a good fit.",
+                    "gu": f"Your earlier {recommended} size for this product was marked as a good fit.",
+                },
+            )
+
         has_sufficient_evidence = len(good_history) > 0 or (bool(body.get("chest")) and bool(body.get("waist")))
 
         if has_sufficient_evidence:
@@ -297,8 +338,8 @@ class SizeTranslatorAgent(Agent):
                 confidence = 30
                 summary = "There is not enough purchase history for this product yet."
                 user_message = {
-                    "hi": "There is currently not enough purchase history for this product. Please tell Vishwas Saathi your typical size, body type, or chest and waist measurements.",  # noqa: E501
-                    "en": "There is currently not enough purchase history for this product. Please tell Vishwas Saathi your typical size, body type, or chest and waist measurements.",  # noqa: E501
+                    "hi": "Mere paas aapki koi purani order history nahi hai aur aapka body size bhi nahi hai. Sahi size jaanne ke liye Vishwas Saathi mein apna size aur body shape batayein.",  # noqa: E501
+                    "en": "Mere paas aapki koi purani order history nahi hai aur aapka body size bhi nahi hai. Sahi size jaanne ke liye Vishwas Saathi mein apna size aur body shape batayein.",  # noqa: E501
                     "bn": "এই পণ্যের জন্য এখনও পর্যাপ্ত ক্রয়ের ইতিহাস নেই। সঠিক আকার জানতে আপনার সাধারণ আকার, শরীরের ধরন বা বুক/কোমরের পরিমাপ বলুন।",  # noqa: E501
                     "mr": "या उत्पादनासाठी अद्याप पुरेसा खरेदी इतिहास उपलब्ध नाही. अचूक आकारासाठी विश्वास संवादमध्ये आपला सामान्य आकार, शरीराचा प्रकार किंवा छाती/कमरेचे मोजमाप सांगा.",  # noqa: E501
                     "gu": "આ ઉત્પાદન માટે હજી પૂરતો ખરીદીનો ઇતિહાસ ઉપલબ્ધ નથી. સાચી સાઈઝ જાણવા માટે વિશ્વાસ સંવાદમાં તમારી સામાન્ય સાઈઝ, શરીરનો પ્રકાર અથવા છાતી/કમરના માપ જણાવો."  # noqa: E501

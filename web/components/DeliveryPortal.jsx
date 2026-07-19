@@ -63,6 +63,15 @@ export default function DeliveryPortal() {
       return;
     }
     Promise.resolve().then(refresh);
+    const timer = window.setInterval(refresh, 5000);
+    const refreshWhenVisible = () => { if (document.visibilityState === "visible") refresh(); };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [authRole, hydrated, router]);
 
   useEffect(() => {

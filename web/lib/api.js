@@ -42,17 +42,18 @@ export function saveAuthSession(session) {
 }
 
 export async function request(path, options = {}) {
-  const session = loadAuthSession();
+  const { authSession, ...fetchOptions } = options;
+  const session = authSession || loadAuthSession();
   const response = await fetch(`${API}${path}`, {
-    ...options,
+    ...fetchOptions,
     headers: {
       "Content-Type": "application/json",
       "ngrok-skip-browser-warning": "1",
       ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-      ...(options.headers || {}),
+      ...(fetchOptions.headers || {}),
     },
   });
-  if (response.status === 401) {
+  if (response.status === 401 && session?.access_token && !path.startsWith("/auth/")) {
     saveAuthSession(null);
     window.dispatchEvent(new CustomEvent("kavach:session-expired"));
     throw new Error("Session expired — please log in again");
@@ -194,12 +195,12 @@ export async function verifyEmailOtp(otp) {
 }
 
 export const resendEmailOtp = () => post("/auth/verify-email/resend", {});
-export async function verifyContactOtp(channel, otp) {
-  const user = await post("/auth/verify-contact", { channel, otp });
-  const session = loadAuthSession();
+export async function verifyContactOtp(channel, otp, signupSession = null) {
+  const user = await request("/auth/verify-contact", { method: "POST", body: JSON.stringify({ channel, otp }), authSession: signupSession });
+  const session = signupSession || loadAuthSession();
   if (session) saveAuthSession({ ...session, user });
   return user;
 }
-export const resendContactOtp = (channel) => post("/auth/verify-contact/resend", { channel });
+export const resendContactOtp = (channel, signupSession = null) => request("/auth/verify-contact/resend", { method: "POST", body: JSON.stringify({ channel }), authSession: signupSession });
 export const confirmOrderEmailSend = (orderId) => post(`/orders/${orderId}/confirm/email/send`, {});
 export const confirmOrderEmailVerify = (orderId, otp) => post(`/orders/${orderId}/confirm/email/verify`, { otp });

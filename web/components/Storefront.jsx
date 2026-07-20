@@ -2290,10 +2290,6 @@ export default function Storefront({ initialProductId = null }) {
 
   function handleAuthenticated(session) {
     const pendingAction = pendingAfterAuth;
-    setAuth(session);
-    setAuthModalOpen(false);
-    setToast(`Welcome, ${session.user.name}`);
-    setPendingAfterAuth(null);
     if (session.user.role === "delivery_boy") {
       // Delivery authentication is completed on the buyer-facing storefront, but
       // its session is stored under the delivery portal's role-specific key. A hard
@@ -2311,6 +2307,10 @@ export default function Storefront({ initialProductId = null }) {
       router.push("/admin");
       return;
     }
+    setAuth(session);
+    setAuthModalOpen(false);
+    setToast(`Welcome, ${session.user.name}`);
+    setPendingAfterAuth(null);
     router.push("/");
     if (pendingAction) pendingAction(session.user.id);
   }

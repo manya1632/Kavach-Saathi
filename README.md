@@ -99,7 +99,7 @@ unconfigured providers honestly.
 1. Clone the repository and enter it:
 
    ```bash
-   git clone https://github.com/manya1632/Kavach-Saathi.git
+   git clone https://github.com/Palak24Ol/Kavach-Saathi.git
    cd Kavach-Saathi
    ```
 
@@ -121,14 +121,28 @@ unconfigured providers honestly.
    credentials to `.env` only for integrations you want to exercise, such as Gemini,
    Groq, Google Maps, Pinecone, Sarvam, Twilio, or Razorpay. Never commit `.env`.
 
-3. Build the application images and start the databases:
+3. Download the demo assets (product images, mock media) from Google Drive and place them in the project root:
+
+   **[📁 Download assets folder from Google Drive](https://drive.google.com/drive/folders/1prI-CaVvp6UP4dNRZPuMsB7R87YS4npb?usp=sharing)**
+
+   Download the folder and extract/place it so the directory structure is:
+   ```
+   Kavach-Saathi/
+   └── assets/
+       ├── mock/
+       └── ...
+   ```
+
+   > These are synthetic demonstration images. Without them the app runs but product images will not load.
+
+4. Build the application images and start the databases:
 
    ```bash
    docker compose build
    docker compose up -d postgres redis
    ```
 
-4. Apply the schema and load the synthetic demonstration catalogue:
+5. Apply the schema and load the synthetic demonstration catalogue:
 
    ```bash
    docker compose run --rm backend alembic upgrade head
@@ -139,14 +153,14 @@ unconfigured providers honestly.
    you intentionally want fresh demo data, not after creating local records you need to
    keep.
 
-5. Start the API, event worker, and web application:
+6. Start the API, event worker, and web application:
 
    ```bash
    docker compose up -d
    docker compose ps
    ```
 
-6. Confirm that the backend is ready:
+7. Confirm that the backend is ready:
 
    ```bash
    curl http://localhost:8000/health
